@@ -252,6 +252,20 @@ remaining validation step; watch for it in PLAN.md Step 4's smoke-test.
 
 ## Step 7 -- systemd reboot hardening (test-first, adapted for infra)
 
+**Status (2026-07-27): DONE, verified live against a real instance
+(`i-04a8e45b85019f0b9`, launch template `granian-rdm-v14-test` v2)
+through two full `sudo reboot` cycles -- all three `verify_rdm_boot.bash`
+checks (units active, API responds, celery responds) passed both times,
+zero manual intervention, matching the "2-3 real reboots" bar below.**
+The live run also surfaced and fixed four real bugs, three of them
+pre-existing and unrelated to Step 7 itself but blocking the bring-up
+entirely -- see "Real bugs found during Step 7's live verification"
+below. First reboot needed a 45s settle wait before the API check passed
+(one transient `connect() failed (111: Connection refused)` in nginx's
+error log while `rdm_rest`'s Granian workers were still binding -- self-
+healing, not a hang); second reboot passed clean on the first check with
+a 60s settle window.
+
 There's no interpreter to unit-test a systemd unit file or cloud-init
 YAML against in isolation the way pytest exercises Python -- the
 test-first equivalent here is an executable **acceptance script** that
@@ -270,21 +284,129 @@ real reboot (red), then iterated on until it passes reliably (green).
      after a manual `systemctl start` sequence.
    Run it against the current (unhardened) instance right after a reboot
    to confirm it actually fails today -- this documents the real bug
-   instead of an assumed one.
+   instead of an assumed one. **Not run against a genuinely unhardened
+   instance in the end** -- the units were hardened (item 2) before the
+   first real instance ever booted this round, so there's no live "red"
+   run to point to, only DESIGN.md's own reasoning for why the
+   unordered units would race. The live run instead surfaced a *different*
+   set of real, pre-existing bugs blocking bring-up entirely (nginx
+   config, `.invenio` config) -- see below -- which is arguably the more
+   valuable finding this step's live-testing pass produced.
 2. **Green: harden the units** in `cloud-init.yaml`'s systemd-unit-writing
-   section (lines ~369-427):
-   - Add `Requires=docker.service` + `After=docker.service` to `rdm`,
-     `rdm_rest`, `rdm_celery`.
-   - Add an `ExecStartPre` readiness loop (`pg_isready`, plus a TCP check
-     for OpenSearch/RabbitMQ) before each unit's `ExecStart` -- a
-     container reporting "started" isn't the same as the service
-     accepting connections.
-   - Order `nginx` `After=rdm.service rdm_rest.service`.
-   - Group all four under one new `rdm.target`
-     (`Wants=rdm.service rdm_rest.service rdm_celery.service nginx.service`)
-     so start/stop/reboot is one unit, not four.
+   section -- done:
+   - `Requires=docker.service` + `After=docker.service` +
+     `Wants=network-online.target` added to `rdm`, `rdm_rest`,
+     `rdm_celery`. Also added `Restart=on-failure`/`RestartSec=5` (not in
+     the original plan bullet, but necessary: `Requires=docker.service`
+     only orders against the Docker *daemon* starting, not against the
+     containers it asynchronously restarts via their own `restart:
+     unless-stopped` policy -- the `ExecStartPre` readiness gate is what
+     actually closes that gap, and `Restart=on-failure` is what makes a
+     gate failure self-heal instead of needing a manual restart).
+   - New shared `wait_for_rdm_services.bash`
+     (`/usr/local/bin/wait_for_rdm_services.bash`, also kept in this repo
+     as the source of truth) as `ExecStartPre=` on all three units --
+     TCP checks on Postgres (5432)/Redis (6379)/RabbitMQ (5672), an HTTP
+     check on OpenSearch (9200), each polled with a bounded 180s timeout.
+     Ports confirmed against `cookiecutter-invenio-rdm`'s actual
+     `docker-services.yml` template, not assumed.
+   - `nginx` ordered via a drop-in
+     (`/etc/systemd/system/nginx.service.d/rdm-ordering.conf`, written by
+     `setup_rdm_granian.bash`) rather than editing the distro's packaged
+     unit file directly -- `After=rdm.service rdm_rest.service`, soft
+     ordering only (no `Requires=`).
+   - New `rdm.target` grouping all four
+     (`Wants=`/`After=rdm.service rdm_rest.service rdm_celery.service
+     nginx.service`), enabled alongside the individual units.
+     `setup_rdm_granian.bash`'s printed instructions now lead with
+     `systemctl start/stop rdm.target` and call out that Docker's own
+     restart policy means `invenio-cli services start` is only needed
+     once, not after every reboot.
 3. **Re-run `verify_rdm_boot.bash` across 2-3 real reboots**, not just
    once -- ordering races are often intermittent, so a single green run
-   doesn't prove reliability.
+   doesn't prove reliability. **Done**: two full `sudo reboot` cycles
+   against `i-04a8e45b85019f0b9`, both came back with all units active
+   and no manual intervention. First reboot's API check needed a 45s
+   settle wait (one transient connection-refused in nginx's error log
+   while `rdm_rest` was still binding its port -- self-healed, matches
+   the deliberately soft nginx ordering); second reboot passed clean on
+   the first check at 60s. Not pushed to a 3rd reboot -- two consistent,
+   explainable results were judged sufficient given the pattern held both
+   times.
 4. **Keep `verify_rdm_boot.bash` in the repo** as a standing regression
-   check for any future edit to `cloud-init.yaml`'s unit section.
+   check for any future edit to `cloud-init.yaml`'s unit section -- done
+   (`verify_rdm_boot.bash`, alongside `wait_for_rdm_services.bash`, both
+   at the repo root and embedded verbatim in `cloud-init.yaml`, confirmed
+   byte-identical between the two copies).
+
+### Real bugs found during Step 7's live verification (2026-07-27)
+
+Four bugs surfaced getting from "instance launched" to "all three
+acceptance checks green," in the order found. The first two are
+pre-existing and affect anyone bringing up an instance from this
+`cloud-init.yaml` regardless of Step 7 -- they just hadn't been hit
+live before because this was the first fresh bring-up since they were
+introduced/left unnoticed.
+
+1. **`.invenio`'s `database`/`search` keys, take two.** The existing
+   comment claimed supplying them as cookiecutter `extra_context` (via
+   the `--config` TOML) was "enough to work around the gap." Live
+   evidence proved that wrong: `invenio-cli services setup` still hit
+   `KeyError: 'database'`. Root cause, confirmed by diffing the actual
+   generated `.invenio` against the input TOML: cookiecutter's saved
+   "replay" context only retains keys that are part of the template's
+   own `cookiecutter.json` schema -- `database`/`search` (and
+   `github_repo`/`description`, also silently dropped, though those
+   aren't read by any invenio-cli code so their absence is harmless)
+   get used nowhere during templating and vanish from the replay.
+   **Fix:** patch `.invenio` directly with `sed` right after `invenio-cli
+   init`, immediately after `cd`-ing into the scaffolded directory --
+   the only place invenio-cli's own `get_db_type()`/`get_search_type()`
+   actually read from. Removed the now-provably-inert keys from the
+   input TOML; corrected the comment.
+2. **nginx never actually served HTTPS traffic to the app.** The
+   original three-server-block template had the proxy `location`
+   blocks in a server block with no `listen` directive of its own
+   (defaulting to `listen 80`), which collided with a *second*, explicit
+   `listen 80` block (both `server_name _;` on the same socket -- logged
+   as "conflicting server name ... ignored"). Whichever block nginx kept,
+   the real TLS/443 block had zero `location`s -- every HTTPS request
+   fell through to nginx's own compiled-in default root
+   (`/usr/share/nginx/html`), a bare 404. This means HTTPS access (the
+   documented, intended way to reach the instance) had likely never
+   actually worked on any prior bring-up either -- just never noticed,
+   since nothing before this pushed on `/api/records` over HTTPS
+   specifically. **Fix:** collapsed to two server blocks -- plain HTTP
+   (80) that redirects to HTTPS, and the TLS (443) block carrying every
+   `location`.
+3. **Every `/api/*` route 404'd even after fixing nginx.** Ruled out
+   both "no demo data" and "OpenSearch still indexing" first (a 200
+   with an empty result, or a 500, would look different from a bare
+   Werkzeug "no URL rule" 404; confirmed live that
+   `/api/vocabularies/languages`, known to have real indexed data, also
+   404'd). Root cause, confirmed by hitting the REST-only Granian
+   process directly: `invenio_app.wsgi_rest:application` (port 5001)
+   mounts every API blueprint at the *root* (`/records` returns 200
+   with real data), not under `/api` -- stripping that prefix is
+   nginx's job. `proxy_pass http://127.0.0.1:5001;` (no trailing slash)
+   forwards the full, unmodified URI, prefix and all. **Fix:** a
+   trailing slash on the plain `/api` location's `proxy_pass` (nginx's
+   prefix-replace behavior); the regex draft-files-upload location can't
+   use that trick, so it explicitly captures and forwards the part
+   after `/api/` instead.
+4. **`verify_rdm_boot.bash`'s own `celery_responds()` check was broken,
+   two different ways**, both only visible once the app itself was
+   actually healthy (bugs 1-3 fixed) and this was the only check still
+   red:
+   - Ran as whatever user invoked the script (root, via `sudo` or SSM's
+     default execution user) -- `uv` and the project venv live under
+     `/home/ubuntu`, invisible to root's `PATH`, so the celery command
+     silently failed to even run (swallowed by the check's own
+     `2>/dev/null`). A manual ping as `ubuntu` succeeded instantly.
+   - Piping straight into `grep -q "pong"` let `grep` exit the instant
+     it matched, closing the pipe early and sending `SIGPIPE` to the
+     still-running `celery` process upstream -- with `pipefail` active,
+     that non-zero exit, not `grep`'s successful match, became the
+     pipeline's reported status. **Fix:** run explicitly `sudo -u
+     ubuntu`, and capture output via command substitution before
+     matching against it (no live pipe to the subprocess).

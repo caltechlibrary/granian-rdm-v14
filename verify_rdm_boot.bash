@@ -42,9 +42,28 @@ api_responds() {
 
 # shellcheck disable=SC2329  # called indirectly via check()'s "$@"
 celery_responds() {
-  (cd "/Sites/${INSTANCE_NAME}" 2>/dev/null && \
-    timeout 15 uv run --no-sync celery --app invenio_app.celery inspect ping 2>/dev/null) \
-    | grep -q "pong"
+  # Explicitly as ubuntu, regardless of which user runs this script --
+  # uv and the project venv live under /home/ubuntu, and running this
+  # as root (e.g. via `sudo`, or SSM's default execution user) silently
+  # can't find `uv` at all, which looks identical to celery being dead.
+  # Found live 2026-07-27: a manual ping as ubuntu succeeded instantly
+  # while this check kept failing, because it was never really running
+  # celery at all.
+  #
+  # Second bug found live the same day: piping straight into `grep -q`
+  # (which exits the instant it finds a match, closing the pipe early)
+  # sends SIGPIPE to the still-running celery process upstream -- with
+  # `set -o pipefail` active, THAT non-zero exit, not grep's successful
+  # match, became the pipeline's reported status. Capture the output via
+  # command substitution first (fully waits, no live pipe to the
+  # subprocess) and match against the captured string instead.
+  local output
+  output="$(sudo -u ubuntu -H bash -c "
+    cd '/Sites/${INSTANCE_NAME}' &&
+    export PATH=\"\$HOME/.local/bin:\$PATH\" &&
+    timeout 15 uv run --no-sync celery --app invenio_app.celery inspect ping
+  " 2>/dev/null)"
+  grep -q "pong" <<< "$output"
 }
 
 check "docker/rdm/rdm_rest/rdm_celery/nginx are all systemctl active" units_active

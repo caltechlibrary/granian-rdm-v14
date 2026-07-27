@@ -4,8 +4,19 @@
 Robert's experiment bringing up Invenio RDM v14 (latest release candidate)
 under [Granian](https://github.com/emmett-framework/granian) instead of
 uWSGI/Gunicorn, provisioned on AWS via
-[clasm](https://github.com/caltechlibrary/clasm), running on free-threaded
-Python 3.14t via `uv`.
+[clasm](https://github.com/caltechlibrary/clasm), managed via `uv`.
+Free-threaded Python 3.14t was tried and abandoned (SQLAlchemy's own
+bundled C extension re-enables the GIL process-wide, see DECISIONS.md);
+runs on standard Python 3.14 instead.
+
+**Status: v0.0.1, proof of concept.** Bring-up (PLAN.md Steps 1-5), the
+vendored `invenio-cli` dev-runner patch (Step 6), and systemd reboot
+hardening (Step 7) are all live-verified against a real EC2 instance --
+including two full `sudo reboot` cycles with zero manual intervention.
+See PLAN.md Step 7's "Real bugs found during Step 7's live verification"
+for what that live pass caught and fixed (a stale `.invenio` workaround,
+a broken nginx config that meant HTTPS access likely never worked before,
+and an `/api` proxy-prefix bug).
 
 This follows on from
 [gunicorn-rdm-v13](https://github.com/caltechlibrary/gunicorn-rdm-v13), a

@@ -71,3 +71,91 @@ verified locally so far). Also separately raised by the user: interest
 in a local Multipass variant of this same `cloud-init.yaml` for
 day-to-day dev on a Mac Mini instead of AWS -- noted as a candidate
 follow-on, not started.
+
+## 2026-07-27 (later still) -- Step 7 systemd hardening, static half done
+
+Checked `aws ec2 describe-instances` first: nothing running for this
+project, so there was no live box to run the red/green reboot cycle
+against, and launching one is a real-cost action on a shared AWS account
+-- didn't do that without asking. User is installing `clasm` themselves
+to launch one (confirmed installed as of this note).
+
+Did everything gradeable without a live instance: wrote
+`wait_for_rdm_services.bash` (ExecStartPre readiness gate -- TCP checks
+on Postgres/Redis/RabbitMQ, HTTP check on OpenSearch, ports confirmed
+against cookiecutter-invenio-rdm's real `docker-services.yml`, not
+guessed) and `verify_rdm_boot.bash` (the actual acceptance script),
+both shellcheck-clean, both embedded verbatim in `cloud-init.yaml` and
+confirmed byte-identical to their repo-root source copies. Hardened
+`rdm`/`rdm_rest`/`rdm_celery` units with `Requires=`/`After=docker.service`
++ the readiness gate + `Restart=on-failure`, added an nginx systemd
+drop-in for ordering (didn't edit the packaged unit file directly), and
+added a new `rdm.target` grouping all four for single start/stop.
+Re-parsed the full YAML afterward to confirm it's still valid with 7
+`write_files` entries.
+
+Not done: the actual reboot test. That needs the live instance the user
+is about to bring up via `clasm`.
+
+## 2026-07-27 (later still) -- Step 7 live-verified: two clean reboots
+
+User installed `clasm` and launched a real instance
+(`i-04a8e45b85019f0b9`, launch template `granian-rdm-v14-test` v2) --
+first real boot of this project's revised cloud-init.yaml. Confirmed via
+`aws ssm describe-instance-information` that SSM was online, so all of
+this was driven directly through `aws ssm send-command`, no SSH needed.
+
+Getting from "instance launched" to "all three `verify_rdm_boot.bash`
+checks green" surfaced four real bugs (full writeup in PLAN.md Step 7's
+"Real bugs found" section) -- two of them pre-existing and unrelated to
+Step 7 itself, just never hit live before:
+
+1. The documented `.invenio` `database`/`search` fix from the original
+   bring-up didn't actually work -- cookiecutter's replay context drops
+   any key not in the template's own schema, confirmed by diffing the
+   generated `.invenio` against the input TOML. Real fix: patch
+   `.invenio` directly with `sed` after scaffolding.
+2. nginx's site config had a duplicate `listen 80` block colliding with
+   the location-bearing block, and the real TLS/443 block had zero
+   locations of its own -- meaning HTTPS access (the intended way to
+   reach the instance) likely never actually worked on the original
+   bring-up either, just never noticed. Fixed by collapsing to two
+   server blocks.
+3. Even after that, every `/api/*` request 404'd -- the REST-only
+   Granian process mounts its blueprints at root, not under `/api`;
+   nginx needed a trailing slash on `proxy_pass` to strip the prefix
+   (plus an explicit capture group for the regex upload-content
+   location, which can't use the trailing-slash trick).
+4. `verify_rdm_boot.bash`'s own celery check was broken two ways: ran as
+   the wrong user (root can't see `uv` under `/home/ubuntu`), and piped
+   into `grep -q`, which triggered a SIGPIPE-vs-pipefail false failure
+   even when celery answered correctly.
+
+After all four fixes: two full `sudo reboot` cycles, both came back with
+every systemd unit active and no manual intervention -- the actual Step
+7 goal. First reboot needed a 45s settle wait (one transient
+connection-refused while `rdm_rest` was still binding, self-healed);
+second passed clean at 60s. Stopped at two reboots (not three) since the
+pattern was consistent and explainable both times.
+
+All fixes applied to both the live instance and `cloud-init.yaml` (and
+`verify_rdm_boot.bash`/`wait_for_rdm_services.bash`'s repo-root copies),
+verified byte-identical between embedded and source copies each time,
+`shellcheck`-clean throughout.
+
+Not done: a third reboot cycle (judged unnecessary); tearing down or
+keeping the test instance is the user's call, not done unilaterally.
+
+## 2026-07-27 (later still) -- v0.0.1: proof of concept
+
+Test instance terminated by the user. Bumped `codemeta.json`'s version
+0.0.0 -> 0.0.1 and corrected its (and README.md's) description, which
+still claimed free-threaded Python 3.14t -- stale since DECISIONS.md's
+"tried, abandoned this round" entry. `developmentStatus: concept` left
+as-is; it's still accurate for what this is. README.md gained a short
+Status section pointing at PLAN.md Step 7's "Real bugs found" writeup.
+No git commit/tag/push done here -- that stays the user's own step
+([[feedback-no-commits]]). Separately, the user found a real bug in
+`clasm` itself while updating the launch template to v2 (sync worked;
+the bug is in some other launch-template-update path) -- deferred to
+tomorrow, not this repo's concern.

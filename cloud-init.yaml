@@ -859,6 +859,135 @@ write_files:
     permissions: '0664'
   - content: |
       #!/bin/bash
+      # ExecStartPre readiness gate for the rdm/rdm_rest/rdm_celery systemd
+      # units (see ../cloud-init.yaml). A Docker container reporting "started"
+      # is not the same as the service inside it actually accepting
+      # connections -- that gap is the root cause identified in DESIGN.md's
+      # "Follow-on: operability hardening" for reboot brittleness (PLAN.md
+      # Step 7). This blocks until Postgres/Redis/RabbitMQ/OpenSearch on
+      # 127.0.0.1 all respond, or exits non-zero after a bounded timeout so
+      # systemd's Restart=on-failure retries the whole unit instead of the
+      # ExecStart racing ahead against services that aren't ready yet.
+      set -uo pipefail
+      TIMEOUT_SECONDS=180
+      INTERVAL_SECONDS=2
+      DEADLINE=$(($(date +%s) + TIMEOUT_SECONDS))
+
+      tcp_ready() {
+        local host="$1" port="$2"
+        (exec 3<>"/dev/tcp/${host}/${port}") 2>/dev/null
+      }
+
+      http_ready() {
+        curl -fsS -o /dev/null --max-time 5 "$1"
+      }
+
+      wait_for() {
+        local description="$1"
+        shift
+        while ! "$@"; do
+          if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+            echo "Timed out after ${TIMEOUT_SECONDS}s waiting for ${description}" >&2
+            return 1
+          fi
+          sleep "$INTERVAL_SECONDS"
+        done
+        echo "${description} is ready"
+      }
+
+      wait_for "Postgres (127.0.0.1:5432)" tcp_ready 127.0.0.1 5432
+      wait_for "Redis/cache (127.0.0.1:6379)" tcp_ready 127.0.0.1 6379
+      wait_for "RabbitMQ (127.0.0.1:5672)" tcp_ready 127.0.0.1 5672
+      wait_for "OpenSearch (127.0.0.1:9200)" http_ready http://127.0.0.1:9200
+    path: /usr/local/bin/wait_for_rdm_services.bash
+    owner: 'root:root'
+    permissions: '0775'
+  - content: |
+      #!/bin/bash
+      # Step 7 acceptance script (see ../PLAN.md "Step 7 -- systemd reboot
+      # hardening"). Run this manually right after `sudo reboot` -- not just
+      # after a manual `systemctl start` sequence -- to confirm the instance
+      # actually comes back up unattended. Exit 0 = every check passed;
+      # nonzero = something is still broken.
+      #
+      # Deliberately standalone from wait_for_rdm_services.bash (the
+      # production readiness gate baked into the systemd units via
+      # ExecStartPre): this script is the outside observer confirming the gate
+      # actually worked, not part of the gate itself. Keep this in the repo as
+      # a standing regression check for any future edit to cloud-init.yaml's
+      # systemd unit section.
+      #
+      # USAGE: verify_rdm_boot.bash [INSTANCE_NAME]
+      set -uo pipefail
+      INSTANCE_NAME="${1:-rdm14-granian}"
+      FAILURES=0
+
+      check() {
+        local description="$1"
+        shift
+        if "$@"; then
+          echo "OK   -- ${description}"
+        else
+          echo "FAIL -- ${description}"
+          FAILURES=$((FAILURES + 1))
+        fi
+      }
+
+      # shellcheck disable=SC2329  # called indirectly via check()'s "$@"
+      units_active() {
+        systemctl is-active --quiet docker rdm rdm_rest rdm_celery nginx
+      }
+
+      # shellcheck disable=SC2329  # called indirectly via check()'s "$@"
+      api_responds() {
+        local code
+        code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 https://localhost/api/records)"
+        [ "$code" = "200" ]
+      }
+
+      # shellcheck disable=SC2329  # called indirectly via check()'s "$@"
+      celery_responds() {
+        # Explicitly as ubuntu, regardless of which user runs this script --
+        # uv and the project venv live under /home/ubuntu, and running this
+        # as root (e.g. via `sudo`, or SSM's default execution user) silently
+        # can't find `uv` at all, which looks identical to celery being dead.
+        # Found live 2026-07-27: a manual ping as ubuntu succeeded instantly
+        # while this check kept failing, because it was never really running
+        # celery at all.
+        #
+        # Second bug found live the same day: piping straight into `grep -q`
+        # (which exits the instant it finds a match, closing the pipe early)
+        # sends SIGPIPE to the still-running celery process upstream -- with
+        # `set -o pipefail` active, THAT non-zero exit, not grep's successful
+        # match, became the pipeline's reported status. Capture the output via
+        # command substitution first (fully waits, no live pipe to the
+        # subprocess) and match against the captured string instead.
+        local output
+        output="$(sudo -u ubuntu -H bash -c "
+          cd '/Sites/${INSTANCE_NAME}' &&
+          export PATH=\"\$HOME/.local/bin:\$PATH\" &&
+          timeout 15 uv run --no-sync celery --app invenio_app.celery inspect ping
+        " 2>/dev/null)"
+        grep -q "pong" <<< "$output"
+      }
+
+      check "docker/rdm/rdm_rest/rdm_celery/nginx are all systemctl active" units_active
+      check "https://localhost/api/records responds 200" api_responds
+      check "celery worker responds to inspect ping" celery_responds
+
+      echo
+      if [ "$FAILURES" -eq 0 ]; then
+        echo "All checks passed."
+        exit 0
+      else
+        echo "${FAILURES} check(s) failed."
+        exit 1
+      fi
+    path: /usr/local/bin/verify_rdm_boot.bash
+    owner: 'root:root'
+    permissions: '0775'
+  - content: |
+      #!/bin/bash
       # Scaffolds an RDM v14 instance running under Granian on standard
       # Python 3.14. Not run automatically by cloud-init -- ssh in after
       # boot and run this manually so each step can be watched/debugged.
@@ -924,16 +1053,29 @@ write_files:
       # release, confirmed via its actual v1.11.0 tag on GitHub) writes
       # .invenio's [cookiecutter] section verbatim from whatever
       # cookiecutter replay context it receives, with no fallback
-      # default, and later commands (e.g. "invenio-cli services start")
+      # default, and later commands (e.g. "invenio-cli services setup")
       # do a bare dict lookup for "database" with no default either --
-      # so omitting it causes a KeyError at service-start time, not at
+      # so omitting it causes a KeyError at service-setup time, not at
       # scaffold time, which is why this wasn't caught until later in the
       # process. (invenio-cli's unreleased master branch already fixes
       # this -- falls back to postgresql/opensearch2 and always writes
-      # them -- but that fix hasn't shipped in a release yet.) Cookiecutter
-      # itself accepts arbitrary extra_context keys even ones the
-      # template's own cookiecutter.json doesn't define, so supplying
-      # these here is enough to work around the gap.
+      # them -- but that fix hasn't shipped in a release yet.)
+      #
+      # CORRECTION, same day, confirmed by re-testing live: supplying
+      # "database"/"search" as extra_context here does NOT work around
+      # the gap, despite an earlier version of this comment claiming
+      # otherwise -- cookiecutter's saved "replay" context (what actually
+      # gets written into .invenio's [cookiecutter] section) only
+      # retains keys that are part of the template's own cookiecutter.json
+      # schema. master's schema no longer defines "database"/"search" at
+      # all (confirmed: they're absent from the generated .invenio even
+      # though they're right here in this file), so cookiecutter accepts
+      # them as inert extra_context, uses them nowhere during templating,
+      # and drops them from the replay -- the KeyError still happened on
+      # a live instance with this exact config. Removed here; the real
+      # fix is the direct .invenio patch right after "invenio-cli init"
+      # below, which is the only place invenio-cli's own
+      # get_db_type()/get_search_type() actually read from.
       cat <<EOT >"/Sites/${INSTANCE_NAME}_${TEMPLATE_VERSION}.toml"
       [RDM]
       flavour = RDM
@@ -949,8 +1091,6 @@ write_files:
       author_name = Caltech Library
       author_email = help@library.caltech.edu
       year = $(date +%Y)
-      database = postgresql
-      search = opensearch2
       file_storage = local
       development_tools = yes
       site_code = yes
@@ -960,6 +1100,13 @@ write_files:
       echo "Initialising RDM template ${TEMPLATE_VERSION} into /Sites/${INSTANCE_NAME}"
       invenio-cli init rdm -c "$TEMPLATE_VERSION" --config "${INSTANCE_NAME}_${TEMPLATE_VERSION}.toml"
       cd "/Sites/${INSTANCE_NAME}"
+
+      echo "Patching .invenio: injecting database/search keys directly --"
+      echo "see the comment above the cookiecutter config heredoc for why"
+      echo "extra_context alone doesn't work"
+      if ! grep -q '^database = ' .invenio; then
+        sed -i '/^\[cookiecutter\]/a database = postgresql\nsearch = opensearch2' .invenio
+      fi
 
       echo "Pinning this project's Python to 3.14 via uv"
       uv python pin 3.14
@@ -1022,12 +1169,37 @@ write_files:
       EOT
 
       echo "Writing nginx site config"
+      # Real bug found via live testing 2026-07-27 (Step 7 verification):
+      # the proxy "location" blocks used to live in a server block with
+      # NO "listen" directive of its own -- nginx defaults that to
+      # "listen 80", which then collided with the *separate*, explicit
+      # "listen 80" block below it (both declaring "server_name _;" on
+      # the same socket), logged as "conflicting server name \"_\" on
+      # 0.0.0.0:80, ignored". Whichever block nginx picked, the TLS
+      # (443, ssl) block had NO location blocks of its own at all -- so
+      # every HTTPS request (the actual intended access path, and what
+      # verify_rdm_boot.bash checks) fell through to nginx's own compiled-
+      # in default root ("/usr/share/nginx/html"), a bare 404, not our
+      # app. Fixed by collapsing to two server blocks: plain HTTP (80)
+      # that redirects to HTTPS, and the actual TLS (443) block carrying
+      # every "location" -- this is the only block that now needs them.
       cat <<EOT >"${INSTANCE_NAME}_nginx.conf"
 
       server {
         server_name _;
+        listen 80;
+        listen [::]:80;
+        return 301 https://\$host\$request_uri;
+      }
+
+      server {
+        server_name _;
+        include snippets/self-signed.conf;
+        include snippets/ssl-params.conf;
         add_header Strict-Transport-Security "max-age=15768000";
         add_header X-Request-ID \$request_id;
+        listen 443 ssl;
+        listen [::]:443 ssl;
 
         proxy_request_buffering off;
         proxy_buffering off;
@@ -1043,8 +1215,22 @@ write_files:
           proxy_hide_header X-User-ID;
           client_max_body_size 100m;
         }
+        # Real bug found via live testing 2026-07-27 (Step 7 verification):
+        # every /api/* request 404'd, including paths with confirmed
+        # indexed data (e.g. /api/vocabularies/languages) -- ruled out
+        # both "no demo data" and "OpenSearch still indexing" (a 200
+        # with an empty result, or a 500, would look different; this was
+        # a bare Werkzeug "no URL rule" 404). Root cause: confirmed live
+        # that invenio_app.wsgi_rest:application (port 5001, the REST-
+        # only Granian process) mounts every API blueprint at the root
+        # ("/records" returns 200 with real data), NOT under "/api" --
+        # that prefix is nginx's job to strip before proxying, which
+        # "proxy_pass http://127.0.0.1:5001;" (no trailing slash, so
+        # nginx forwards the full unmodified URI) never did. A trailing
+        # slash on proxy_pass makes nginx replace the matched location
+        # prefix with it instead of preserving the full path.
         location /api {
-          proxy_pass http://127.0.0.1:5001;
+          proxy_pass http://127.0.0.1:5001/;
           proxy_set_header Host \$host;
           proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto \$scheme;
@@ -1053,9 +1239,12 @@ write_files:
           proxy_hide_header X-User-ID;
           client_max_body_size 100m;
         }
-        location ~ /api/records/.+/draft/files/.+/content {
+        # Regex locations can't use proxy_pass's trailing-slash prefix-
+        # strip trick -- the /api/ prefix must be dropped explicitly via
+        # a capture group instead.
+        location ~ ^/api/(records/.+/draft/files/.+/content)$ {
           gzip off;
-          proxy_pass http://127.0.0.1:5001;
+          proxy_pass http://127.0.0.1:5001/\$1;
           proxy_set_header Host \$host;
           proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto \$scheme;
@@ -1064,22 +1253,6 @@ write_files:
           proxy_hide_header X-User-ID;
           client_max_body_size 500G;
         }
-      }
-
-      server {
-        server_name _;
-        add_header Strict-Transport-Security "max-age=15768000";
-        listen 80;
-        listen [::]:80;
-      }
-
-      server {
-        server_name _;
-        include snippets/self-signed.conf;
-        include snippets/ssl-params.conf;
-        add_header Strict-Transport-Security "max-age=15768000";
-        listen 443 ssl;
-        listen [::]:443 ssl;
       }
 
       EOT
@@ -1102,9 +1275,22 @@ write_files:
       echo "Writing systemd unit files (Granian, provisional worker/thread"
       echo "counts carried over unexamined from the v13 uWSGI baseline --"
       echo "see header comment; not yet tuned)"
+      #
+      # Reboot-reliability hardening (PLAN.md Step 7, DESIGN.md "Follow-on:
+      # operability hardening"): each unit now waits on docker.service
+      # (Requires=/After=) AND on the backing services actually accepting
+      # connections (ExecStartPre=wait_for_rdm_services.bash) -- Docker's
+      # own daemon coming up is not the same as the Postgres/OpenSearch/
+      # RabbitMQ containers it restarts (via their own "restart:
+      # unless-stopped" policy) being ready yet, which is what made the
+      # previous unordered units race on reboot. Restart=on-failure lets
+      # systemd retry automatically instead of needing a manual restart.
       cat <<EOT >rdm.service
       [Unit]
       Description=Launch InvenioRDM Web Interface (Granian, UI)
+      After=docker.service network-online.target
+      Requires=docker.service
+      Wants=network-online.target
 
       [Service]
       Type=simple
@@ -1113,7 +1299,10 @@ write_files:
       StandardError=journal
       WorkingDirectory=/Sites/${INSTANCE_NAME}
       EnvironmentFile=/Sites/${INSTANCE_NAME}/.env
+      ExecStartPre=/usr/local/bin/wait_for_rdm_services.bash
       ExecStart=/home/ubuntu/.local/bin/uv run --no-sync granian --interface wsgi invenio_app.wsgi_ui:application --host 0.0.0.0 --port 5000 --workers 2 --blocking-threads 2
+      Restart=on-failure
+      RestartSec=5
 
       [Install]
       WantedBy=multi-user.target
@@ -1122,6 +1311,9 @@ write_files:
       cat <<EOT >rdm_rest.service
       [Unit]
       Description=Launch InvenioRDM REST API (Granian)
+      After=docker.service network-online.target
+      Requires=docker.service
+      Wants=network-online.target
 
       [Service]
       Type=simple
@@ -1130,7 +1322,10 @@ write_files:
       StandardError=journal
       WorkingDirectory=/Sites/${INSTANCE_NAME}
       EnvironmentFile=/Sites/${INSTANCE_NAME}/.env
+      ExecStartPre=/usr/local/bin/wait_for_rdm_services.bash
       ExecStart=/home/ubuntu/.local/bin/uv run --no-sync granian --interface wsgi invenio_app.wsgi_rest:application --host 0.0.0.0 --port 5001 --workers 4 --blocking-threads 2
+      Restart=on-failure
+      RestartSec=5
 
       [Install]
       WantedBy=multi-user.target
@@ -1139,6 +1334,9 @@ write_files:
       cat <<EOT >rdm_celery.service
       [Unit]
       Description=Launch InvenioRDM Celery Worker
+      After=docker.service network-online.target
+      Requires=docker.service
+      Wants=network-online.target
 
       [Service]
       Type=simple
@@ -1147,17 +1345,41 @@ write_files:
       StandardError=journal
       WorkingDirectory=/Sites/${INSTANCE_NAME}
       EnvironmentFile=/Sites/${INSTANCE_NAME}/.env
+      ExecStartPre=/usr/local/bin/wait_for_rdm_services.bash
       ExecStart=/home/ubuntu/.local/bin/uv run --no-sync celery --app invenio_app.celery worker --beat --events --loglevel INFO
+      Restart=on-failure
+      RestartSec=5
 
       [Install]
       WantedBy=multi-user.target
       EOT
 
-      sudo mv -v rdm.service rdm_rest.service rdm_celery.service /etc/systemd/system/
-      sudo chown root:root /etc/systemd/system/rdm*.service
-      sudo chmod 664 /etc/systemd/system/rdm*.service
+      echo "Writing rdm.target (single start/stop/enable point for"
+      echo "rdm+rdm_rest+rdm_celery+nginx together) and an nginx drop-in"
+      echo "so nginx orders itself after the app units on boot"
+      cat <<EOT >rdm.target
+      [Unit]
+      Description=InvenioRDM Granian bring-up (rdm + rdm_rest + rdm_celery + nginx)
+      Wants=rdm.service rdm_rest.service rdm_celery.service nginx.service
+      After=rdm.service rdm_rest.service rdm_celery.service nginx.service
+
+      [Install]
+      WantedBy=multi-user.target
+      EOT
+
+      sudo mkdir -p /etc/systemd/system/nginx.service.d
+      cat <<EOT | sudo tee /etc/systemd/system/nginx.service.d/rdm-ordering.conf >/dev/null
+      [Unit]
+      # Soft ordering only (no Requires=) -- nginx doesn't need the app up
+      # to itself start, this just avoids confusing early 502s on boot.
+      After=rdm.service rdm_rest.service
+      EOT
+
+      sudo mv -v rdm.service rdm_rest.service rdm_celery.service rdm.target /etc/systemd/system/
+      sudo chown root:root /etc/systemd/system/rdm*.service /etc/systemd/system/rdm.target
+      sudo chmod 664 /etc/systemd/system/rdm*.service /etc/systemd/system/rdm.target
       sudo systemctl daemon-reload
-      sudo systemctl enable rdm rdm_rest rdm_celery
+      sudo systemctl enable rdm rdm_rest rdm_celery rdm.target
 
       cat <<EOT
 
@@ -1174,17 +1396,21 @@ write_files:
              invenio-cli services stop
 
          Production-style workflow (Granian/nginx under systemd, matches
-         the intended deployment topology):
+         the intended deployment topology). Docker's own restart policy
+         (see docker-services.yml) brings the backing containers back on
+         every reboot automatically -- "invenio-cli services start" is
+         only needed the first time, not after every reboot:
              cd /Sites/${INSTANCE_NAME}
-             invenio-cli services start
-             sudo systemctl start rdm_celery rdm_rest rdm nginx
+             invenio-cli services start   # first time only
+             sudo systemctl start rdm.target   # or: start rdm_celery rdm_rest rdm nginx
 
          Check:
              invenio-cli services status
-             sudo systemctl status rdm_celery rdm_rest rdm nginx
+             sudo systemctl status rdm.target
+             /usr/local/bin/verify_rdm_boot.bash ${INSTANCE_NAME}   # full acceptance check, esp. after a reboot
 
          Stop:
-             sudo systemctl stop nginx rdm rdm_rest rdm_celery
+             sudo systemctl stop rdm.target
              invenio-cli services stop
 
       EOT

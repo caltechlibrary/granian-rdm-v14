@@ -9,4 +9,5 @@ bin
 man
 dist
 *.jsonl
+*.pyc
 __pycache__
