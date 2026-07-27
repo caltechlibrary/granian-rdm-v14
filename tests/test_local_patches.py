@@ -544,6 +544,22 @@ def test_labeled_popen_starts_reader_thread(p_popen, p_thread, mock_cli_config):
     assert proc is mock_proc
 
 
+@patch("invenio_cli.commands.local.popen")
+def test_run_all_forwards_runner_to_run_web(p_popen, mock_cli_config):
+    """run_all's `runner` kwarg reaches run_web, not just run_worker."""
+    commands = LocalCommands(mock_cli_config)
+    mock_proc = MagicMock()
+    p_popen.return_value = mock_proc
+
+    commands.run_all(
+        "127.0.0.1", "5000", debug=True, jobs_scheduler=False, runner="granian"
+    )
+
+    web_call = p_popen.call_args_list[0]
+    web_command = web_call[0][0]
+    assert web_command[:3] == ["pipenv", "run", "granian"]
+
+
 def test_echo_labeled_output_prefixes_each_line(mock_cli_config, capsys):
     """_echo_labeled_output prefixes every line of output with the label."""
     commands = LocalCommands(mock_cli_config)

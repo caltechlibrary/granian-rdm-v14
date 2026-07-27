@@ -326,10 +326,11 @@ class LocalCommands(Commands):
         celery_log_file=None,
         celery_log_level="INFO",
         jobs_scheduler=True,
+        runner="flask",
     ):
         """Run all services."""
         processes = [
-            *self.run_web(host, port, debug),
+            *self.run_web(host, port, debug, runner=runner),
             *self.run_worker(
                 celery_log_file, celery_log_level, jobs_scheduler=jobs_scheduler
             ),

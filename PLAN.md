@@ -139,6 +139,22 @@ Not part of this initial bring-up, per DESIGN.md's proposed approach:
 
 ## Step 6 -- invenio-cli dev runner enhancement (TDD)
 
+**Status (2026-07-27): all of items 1-5 done and verified end-to-end
+locally** (red-green: 12 new/changed tests passing, 14 pre-existing
+legacy skips untouched; README usage docs done; this diff-vs-upstream
+note done). Item 4 ("wire in") is now real, not just planned:
+`cloud-init.yaml` embeds the two patched files verbatim (byte-identical
+to `vendor/invenio_cli/`, checked programmatically) plus a new
+`apply_invenio_cli_patch.bash` that `install_rdm_toolchain.bash` now
+calls right after `uv tool install "invenio-cli==1.11.0"`. Verified as a
+full simulated deploy -- clean `uv tool install --force
+invenio-cli==1.11.0` -> run the exact extracted script -> confirmed
+`invenio-cli run web --help` shows `--runner [flask|granian]` for real,
+and `shellcheck` passes clean on both new/changed scripts. **Not yet
+verified against an actual EC2 instance** -- only against a local `uv
+tool install` on this Mac (cleaned up afterward). First real instance
+boot is the remaining validation step.
+
 Scope and location per DECISIONS.md's 2026-07-27 entry: vendored patch to
 `local.py`, Granian runner option + labeled output, developed test-first
 against `invenio-cli`'s own test conventions.
@@ -169,14 +185,70 @@ against `invenio-cli`'s own test conventions.
 3. **Green: implement against the vendored copy** until the new tests
    pass without breaking any of the copied pre-existing tests (run the
    full copied `test_local_patches.py`, not just the new cases).
-4. **Wire in.** Point `setup_rdm_granian.bash` (in `cloud-init.yaml`) at
-   the vendored copy for the dev workflow (`invenio-cli run
-   --runner=granian` once the option lands) instead of touching the
-   installed package.
+4. **Wire in.** `cloud-init.yaml` now embeds both patched files verbatim
+   (new `write_files` entries at `/usr/local/share/invenio-cli-patch/`)
+   and a new `apply_invenio_cli_patch.bash`
+   (`/usr/local/bin/apply_invenio_cli_patch.bash`) that
+   `install_rdm_toolchain.bash` runs right after `uv tool install
+   "invenio-cli==1.11.0"` -- exact pin, not `>=`, since the patch is a
+   file *copy*, not a diff, and only matches the exact release it was
+   diffed from. The apply script locates the tool's isolated venv via
+   `uv tool dir`, copies the two files over the installed package, then
+   fails the provision loudly (not silently at first dev use) if
+   `LocalCommands.run_web` doesn't actually gain a `runner` parameter
+   afterward. `setup_rdm_granian.bash`'s final instructions now lead with
+   `invenio-cli run all --runner granian` as the recommended dev
+   workflow, ahead of the systemd/production commands.
 5. **Document.** Add usage notes (flag, defaults, output-labeling format)
    to this repo's `README.md` so other developers know what changed vs.
    stock `invenio-cli`, and keep a running diff-vs-upstream note here in
    PLAN.md for whoever eventually extracts this to a fork/PR.
+
+### Diff vs. upstream `invenio-cli==1.11.0` (update as this evolves)
+
+Two files patched, both additive (new optional params/options, defaults
+preserve stock behavior exactly):
+
+- **`invenio_cli/commands/local.py`**
+  - `run_web(self, host, port, debug=True, runner="flask")` -- new
+    `runner` param. `runner="flask"` is byte-for-byte the original
+    command; `runner="granian"` builds
+    `granian --interface wsgi invenio_app.wsgi_ui:application --host
+    <host> --port <port> --ssl-certificate docker/nginx/test.crt
+    --ssl-keyfile docker/nginx/test.key` instead. Unrecognized values
+    raise `ValueError` (defense in depth -- the CLI layer's
+    `click.Choice` should already reject these before this is reached).
+  - `run_all(self, ..., runner="flask")` -- forwards `runner` to
+    `run_web`; unchanged otherwise.
+  - New `_labeled_popen(self, label, command, env=None)` and
+    `_echo_labeled_output(self, label, proc)` -- `run_web`, `run_worker`,
+    and `run_jobs_scheduler` now go through `_labeled_popen` (label
+    `"web"`/`"worker"`/`"beat"` respectively) instead of calling `popen`
+    directly, so concurrent output is prefixed instead of interleaved
+    unlabeled. Uses a daemon `Thread` per process to read and echo
+    `stdout` (merged with `stderr` via `STDOUT`) line-by-line.
+- **`invenio_cli/cli/cli.py`**
+  - `web_options` gains a `--runner` `click.Choice(["flask", "granian"])`
+    option, default `"flask"`.
+  - `run web` and `run all` commands now accept and forward `runner` to
+    the corresponding `LocalCommands` call. `run worker` is untouched
+    (doesn't use `web_options`). The bare `invenio-cli run` (no
+    subcommand, backward-compat path via `ctx.forward(run_all)`) picks up
+    `--runner` automatically since it shares `web_options`.
+
+Tests: `tests/test_local_patches.py` (vendored `tests/commands/test_local.py`
++ 6 new/changed tests) and `tests/test_cli_patches.py` (new file -- upstream
+has no working test coverage at this layer to extend; see that file's
+module docstring for why). Run via the venv recipe in README.md.
+
+**Remaining:** the wiring above was verified end-to-end in a *local*
+simulation (extract the exact `write_files` content from `cloud-init.yaml`
+via a real YAML parse, force-reinstall a clean `invenio-cli==1.11.0` with
+`uv tool install`, run the extracted `apply_invenio_cli_patch.bash`
+verbatim, confirm `invenio-cli run web --help` really shows `--runner
+[flask|granian]`, `shellcheck` clean on both scripts) -- but not yet
+against a real EC2 instance. First real boot via `clasm` is the
+remaining validation step; watch for it in PLAN.md Step 4's smoke-test.
 
 ## Step 7 -- systemd reboot hardening (test-first, adapted for infra)
 
