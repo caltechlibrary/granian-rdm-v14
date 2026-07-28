@@ -1,0 +1,26 @@
+
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: granian-rdm-v14
+abstract: |-
+  Robert's experiment bringing up Invenio RDM v14 (latest release candidate) under Granian instead of uWSGI/Gunicorn, provisioned on AWS via clasm, managed via uv. Free-threaded Python 3.14t was tried and abandoned (SQLAlchemy's own bundled C extension re-enables the GIL process-wide); runs on standard Python 3.14 instead. v0.0.1: proof of concept live-verified end to end, including reboot-survivable systemd hardening.
+authors:
+  - family-names: Doiel
+    given-names: R. S.
+    orcid: https://orcid.org/0000-0003-0900-6903
+    email: rsdoiel@caltech.edu
+
+
+repository-code: "https://github.com/caltechlibrary/granian-rdm-v14"
+version: 0.0.2
+date-released: 2026-07-28
+
+license-url: "https://caltechlibrary.github.io/granian-rdm-v14/LICENSE"
+keywords:
+  - Invenio RDM
+  - AWS
+  - Granian
+  - clasm
+  - free-threaded Python
+
