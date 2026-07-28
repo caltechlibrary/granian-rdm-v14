@@ -10,7 +10,7 @@ authors:
 
 
 repository_code: https://github.com/caltechlibrary/granian-rdm-v14
-version: 0.0.2
+version: 0.0.3
 license_url: https://caltechlibrary.github.io/granian-rdm-v14/LICENSE
 
 
@@ -27,9 +27,9 @@ date_released: 2026-07-28
 About this software
 ===================
 
-## granian-rdm-v14 0.0.2
+## granian-rdm-v14 0.0.3
 
-This release provides a Proof of Concept of runnning Invenio RDM v14 (release canidate) using Granian instead of WSGI. It uses a cloud-init.yaml or cloud-init-multipass.yaml file for setup and deployment. It supports AWS as well as running it via Multipass.
+Fixed cloud-init.yaml size issue with AWS launch templates
 
 ## Authors
 
