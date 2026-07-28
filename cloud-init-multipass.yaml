@@ -1123,6 +1123,29 @@ write_files:
         sed -i '/^\[cookiecutter\]/a database = postgresql\nsearch = opensearch2' .invenio
       fi
 
+      echo "Preparing host-side OpenSearch snapshot repo dir and patching"
+      echo "docker-services.yml so the search container can write to it"
+      # /opt/rdm_opensearch_backups mirrors this project's /opt/rdm_sql_backups
+      # convention. cookiecutter-invenio-rdm's stock docker-services.yml
+      # (confirmed against the real master-branch template, not guessed) has
+      # no snapshot-repo volume or path.repo setting on the search service --
+      # OpenSearch refuses to register a filesystem repository without both,
+      # which is the most likely reason earlier OpenSearch backup attempts
+      # (2024/early 2025) never worked.
+      sudo mkdir -p /opt/rdm_opensearch_backups
+      # opensearchproject/opensearch's official image runs as uid:gid 1000:1000;
+      # a bind-mounted snapshot dir must be owned by that uid or the container
+      # can't write to it. Confirm this uid on the first real boot.
+      sudo chown 1000:1000 /opt/rdm_opensearch_backups
+      sudo chmod 775 /opt/rdm_opensearch_backups
+
+      # path.repo as a bare scalar (matching how discovery.type=single-node is
+      # already set here) -- OpenSearch's env-to-yaml translation should coerce
+      # a single path into the one-element list path.repo expects, but this is
+      # unverified against a real container; confirm on first boot.
+      sed -i '\#- search_data:/usr/share/opensearch/data#a\      - /opt/rdm_opensearch_backups:/usr/share/opensearch/backups' docker-services.yml
+      sed -i '\#- "discovery.type=single-node"#a\      - "path.repo=/usr/share/opensearch/backups"' docker-services.yml
+
       echo "Pinning this project's Python to 3.14 via uv"
       uv python pin 3.14
 
