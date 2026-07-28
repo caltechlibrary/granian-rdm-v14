@@ -30,10 +30,10 @@
   ],
   "name": "granian-rdm-v14",
   "license": "https://caltechlibrary.github.io/granian-rdm-v14/LICENSE",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "developmentStatus": "concept",
   "issueTracker": "https://github.com/caltechlibrary/granian-rdm-v14/issues",
-  "releaseNotes": "Fixed cloud-init.yaml size issue with AWS launch templates",
+  "releaseNotes": "Added path.repo to support snapshoting OpenSearch indexes and copying them to S3.",
   "copyrightYear": 2026,
   "copyrightHolder": "California Institute of Technology"
 }
