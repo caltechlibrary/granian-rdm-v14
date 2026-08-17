@@ -193,14 +193,19 @@ verified live rather than assumed:
    production in the v13 round") now applies -- see the sync-fix and
    pin-bump phases of the current implementation plan.
 2. **`cookiecutter-invenio-rdm`'s `master` branch has moved on to v15.**
-   It now pins `invenio-app-rdm~=15.0.0b2.dev0` and has reintroduced
-   `uwsgi`/`uwsgitop`/`uwsgi-tools` into its `pyproject.toml` template --
-   neither was true when `master` was chosen as the scaffold source
-   (2026-07-24, back when `master` cleanly tracked v14 pre-releases).
+   It now pins `invenio-app-rdm~=15.0.0b2.dev0` (commit `5707760`,
+   2026-08-06) -- not true when `master` was chosen as the scaffold
+   source (2026-07-24, back when `master` cleanly tracked v14
+   pre-releases, and no version-numbered v14 branch existed yet).
    Scaffolding from `master` today means scaffolding for v15 and
    force-downgrading to `invenio-app-rdm==14.0.0`, not the clean match it
-   was originally. This is a new open question -- not resolved here, see
-   DECISIONS.md's newest entry for the choice made and why.
+   was originally. (`uwsgi`/`uwsgitop`/`uwsgi-tools` in the template is
+   *not* part of what changed -- confirmed present continuously since at
+   least `b9.dev0`, already noted in this document's original
+   2026-07-24 grounding facts above; the existing strip step in
+   `setup_rdm_granian.bash` already handles it regardless.) Resolved in
+   DECISIONS.md's newest entry: a real `v14.0` branch now exists (it
+   didn't on 2026-07-24) and is the new scaffold source.
 
 Also confirmed (not previously written down anywhere): this project's own
 two cloud-init files silently diverged on 2026-07-28 -- `cloud-init.yaml`

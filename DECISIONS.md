@@ -193,3 +193,58 @@ labeled/prefixed process output — in a vendored patched copy of
   tests should still follow `invenio-cli`'s own contribution conventions
   (test style, docstrings, changelog entry format) from the start, so the
   eventual extraction-to-fork step is a copy, not a rewrite.
+
+---
+
+## 2026-08-17 — Cookiecutter scaffold source: switch `master` → `v14.0` branch
+
+**Context.** DESIGN.md's 2026-08-17 update found that
+`cookiecutter-invenio-rdm`'s `master` branch — `setup_rdm_granian.bash`'s
+default `TEMPLATE_VERSION` — now pins `invenio-app-rdm~=15.0.0b2.dev0`
+(commit `5707760`, 2026-08-06), not the clean v14 target it was on
+2026-07-24 when `master` was originally chosen (no version-numbered v14
+branch existed then — branches stopped at `v13.0`). Needed to settle a
+scaffold source before bumping this repo's own RDM pin to GA `14.0.0`.
+
+**Decision.** Change `TEMPLATE_VERSION`'s default from `"master"` to
+`"v14.0"` — a real, version-numbered branch, confirmed live to now exist
+(it does not appear in the branch list fetched on 2026-07-24, but does
+today).
+
+**Rationale.**
+- Checked `v14.0`'s actual template content directly, not assumed: pins
+  `invenio-app-rdm~=14.0.0` (a compatible-release match satisfied by GA
+  `14.0.0` outright — no forced downgrade needed, unlike scaffolding from
+  `master`), `requires-python ~=3.14.0` (matches this project's existing
+  standard-Python-3.14 decision, unchanged), and `cookiecutter.json`
+  still omits `database`/`search` keys (PLAN.md Step 7's `.invenio`
+  sed-patch workaround is unaffected either way).
+- `uwsgi`/`uwsgitop`/`uwsgi-tools` are present on `v14.0` too — confirmed
+  this is not new or specific to `master`'s v15 move (present
+  continuously back through at least commit `67b230cc7c`, 2026-04-01,
+  `~=14.0.0b9.dev0`); the existing `sed -i '/"uwsgi/d' pyproject.toml`
+  strip step in `setup_rdm_granian.bash` already handles it and needs no
+  change. Not a factor in this decision either way.
+- Rejected staying on `master`: would scaffold for a different major
+  version (v15) and immediately fight it via a forced downgrade, rather
+  than matching the template to the target version like `v13.0` did for
+  the previous round.
+- Rejected pinning to a bare commit SHA (`ffd3d86c22`, the last `master`
+  commit before the v15 bump, itself pinning `~=14.0.0rc4`) once `v14.0`
+  was confirmed to exist as a real branch: a version-numbered branch is
+  more legible, matches this project's own `v13.0` precedent, and is
+  more likely to receive any v14.0.x-line fixes upstream backports to it
+  than a frozen commit would.
+
+**Consequences.**
+- `setup_rdm_granian.bash`'s `TEMPLATE_VERSION` default changes from
+  `"master"` to `"v14.0"` in both `cloud-init.yaml` and
+  `cloud-init-multipass.yaml` — still overridable via the existing
+  second positional argument.
+- `v14.0` is a branch, not an immutable tag — it could itself move if
+  upstream backports land on it. Re-check it hasn't drifted before
+  reusing this decision much later, same "verify live, don't assume"
+  discipline as every other grounding fact in this repo.
+- Doesn't change the free-threaded-Python decision, the uwsgi-strip
+  step, or the `.invenio` database/search patch — all independently
+  confirmed unaffected by this switch.

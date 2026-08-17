@@ -196,12 +196,14 @@ last pinned to). Upstream has already moved on to v15 betas
 (`v15.0.0b0.dev0` through `v15.0.0b3.dev0` all tagged), and
 `cookiecutter-invenio-rdm`'s `master` branch -- the template
 `setup_rdm_granian.bash` scaffolds from -- now pins
-`invenio-app-rdm~=15.0.0b2.dev0` and has reintroduced
-`uwsgi`/`uwsgitop`/`uwsgi-tools` into its `pyproject.toml` template. That
-wasn't true when DESIGN.md's "Grounding facts" were last checked
-(2026-07-24/27) -- `master` scaffolded cleanly for v14 back then. This is
-a new open question, not just a version-string bump; see DECISIONS.md's
-next entry.
+`invenio-app-rdm~=15.0.0b2.dev0` (commit `5707760`, 2026-08-06). That
+specific version-target change wasn't true when DESIGN.md's "Grounding
+facts" were last checked (2026-07-24/27) -- `master` cleanly tracked v14
+pre-releases back then. (`uwsgi`/`uwsgitop`/`uwsgi-tools` being in the
+template is *not* new, though -- DESIGN.md's original 2026-07-24
+grounding facts already noted that; don't blame the v15 bump for it.)
+This is a new open question, not just a version-string bump; see
+DECISIONS.md's next entry.
 
 Next: DECISIONS.md entry on which cookiecutter source to scaffold from
 for a clean v14 GA instance (Phase 2 of the current plan), then the
