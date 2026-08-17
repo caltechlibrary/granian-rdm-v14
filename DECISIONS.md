@@ -248,3 +248,52 @@ today).
 - Doesn't change the free-threaded-Python decision, the uwsgi-strip
   step, or the `.invenio` database/search patch — all independently
   confirmed unaffected by this switch.
+
+---
+
+## 2026-08-17 — AWS/Multipass split on the vendored `invenio-cli` patch: keep permanent
+
+**Context.** The vendored `invenio-cli --runner granian` dev-runner patch
+(DECISIONS.md's 2026-07-27 "enhancement scope and location" entry) is
+wired into `cloud-init-multipass.yaml` but was stripped from
+`cloud-init.yaml` on 2026-07-28 to fit AWS's 16384-byte user-data limit
+(see NOTES.md's 2026-08-17 catch-up entry). README.md flagged this as an
+open question: accept the split as permanent, or rework it (e.g., fetch
+the patch's files from a URL at boot instead of embedding them verbatim,
+freeing up space on the AWS side)?
+
+**Decision.** Keep the split permanent. Don't pursue a URL-fetch rework.
+
+**Rationale.**
+- This isn't just a byte-limit accident to work around — it lines up
+  with how the two platforms are actually used. `cloud-init.yaml`
+  provisions the AWS instance in a **production-shaped topology**
+  (systemd units for `rdm`/`rdm_rest`/`rdm_celery`, nginx TLS proxy,
+  hardened for unattended reboot per PLAN.md Step 7) — nothing about
+  that path ever calls `invenio-cli run`, so a patch that adds a
+  `--runner` flag to `invenio-cli run` has no user on AWS regardless of
+  whether it fits.
+  `cloud-init-multipass.yaml` was added specifically (2026-07-27 NOTES.md
+  entry) "as a faster/cheaper local iteration loop" — exactly the
+  dev-inner-loop use case DESIGN.md's "Follow-on: operability hardening"
+  section wrote the patch for in the first place.
+- The byte-limit finding (14613/16384 bytes, ~1770 remaining margin,
+  from Phase 3's headroom check) is real and would make a URL-fetch
+  rework attractive on its own merits if AWS actually needed the patch —
+  but it doesn't, so there's no feature gap to engineer around, only a
+  hypothetical one.
+- A URL-fetch rework would add a real new failure mode (network egress
+  to fetch the patch files at boot time, plus a dependency on this
+  repo being pushed to a reachable location) purely to serve a use case
+  (interactive `invenio-cli run` dev iteration on a production-shaped
+  AWS demo box) nobody has asked for.
+
+**Consequences.**
+- `README.md`'s "As of 2026-07-28, this patch is wired into
+  `cloud-init-multipass.yaml` only" note should be reworded from
+  "here's an open question" to "here's why this is permanent," so a
+  future reader doesn't reopen it as a bug.
+- If someone later *does* want interactive dev-server iteration against
+  a live AWS instance (not just Multipass), that's a new, different
+  requirement — revisit this decision then, with that actual use case in
+  hand, rather than preemptively building for it now.

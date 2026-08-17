@@ -255,6 +255,27 @@ AWS-vs-Multipass split on the vendored `invenio-cli --runner granian`
 patch is the permanent intended state, or worth reworking given how
 little headroom `cloud-init.yaml` now has.
 
+## 2026-08-17 (later still) -- Phase 4: patch split declared permanent
+
+Decided (DECISIONS.md) to keep the AWS/Multipass split on the vendored
+`invenio-cli --runner granian` patch permanent, and not pursue a
+URL-fetch rework to reclaim the AWS byte-limit headroom. Reasoning isn't
+just "it fits" -- `cloud-init.yaml` provisions a production-shaped
+systemd/nginx topology that never calls `invenio-cli run` in the first
+place, while `cloud-init-multipass.yaml` is specifically the dev
+iteration loop the patch was written for (DESIGN.md's original
+"operability hardening" framing). No feature gap actually exists on AWS
+to engineer around. Updated README.md's note from "open question" to
+"resolved, by design" so a future reader doesn't reopen this as a bug.
+No script changes this round -- pure decision + doc update.
+
+Next: Phase 6 (final) -- a dated DESIGN.md/PLAN.md wrap-up entry
+summarizing everything from this session (GA pin, v14.0 template switch,
+the AWS/Multipass sync fix, the patch-split decision), plus a clear flag
+that a real boot (AWS or Multipass) is still needed to confirm `uv`/
+`invenio-cli install` actually resolves cleanly against v14.0/GA -- that
+live step is the user's call, not something to kick off unilaterally.
+
 ## 2026-07-27 (later still) -- v0.0.1: proof of concept
 
 Test instance terminated by the user. Bumped `codemeta.json`'s version

@@ -42,13 +42,16 @@ for the choices made along the way.
 
 ## `invenio-cli` dev runner patch (vendored)
 
-**As of 2026-07-28, this patch is wired into `cloud-init-multipass.yaml`
-only.** It was removed from `cloud-init.yaml` (AWS) the same day to fit
-under AWS's 16384-byte user-data limit -- a fresh AWS instance from this
-repo currently does *not* get `invenio-cli run --runner granian` for
-free. Whether that split is permanent or worth reworking (e.g. fetching
-the patch from a URL at boot instead of embedding it) is an open
-decision, see DECISIONS.md.
+**This patch is wired into `cloud-init-multipass.yaml` only, by design
+(decided 2026-08-17, see DECISIONS.md) -- not a gap to fill in on
+AWS.** It was originally dropped from `cloud-init.yaml` on 2026-07-28 to
+fit under AWS's 16384-byte user-data limit, but the split turns out to
+match how the two platforms are actually used regardless of that limit:
+`cloud-init.yaml` provisions a production-shaped topology (systemd
+units, nginx TLS proxy) that never calls `invenio-cli run` at all, while
+`cloud-init-multipass.yaml` exists specifically as the local dev
+iteration loop this patch was written for. A fresh AWS instance from
+this repo intentionally does not get `invenio-cli run --runner granian`.
 
 `vendor/invenio_cli/` holds a small, additive patch on top of stock
 `invenio-cli==1.11.0`, adding a `--runner` option to `invenio-cli run`
