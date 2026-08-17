@@ -209,6 +209,52 @@ Next: DECISIONS.md entry on which cookiecutter source to scaffold from
 for a clean v14 GA instance (Phase 2 of the current plan), then the
 sync-fix acceptance script (Phase 3).
 
+## 2026-08-17 (later) -- Phase 2 decided, Phase 3+5 merged and done
+
+Phase 2: confirmed live that a `v14.0` cookiecutter-invenio-rdm branch
+now exists (it didn't on 2026-07-27) and pins `~=14.0.0` cleanly --
+DECISIONS.md's newest entry switches `TEMPLATE_VERSION`'s default to it.
+Also caught and corrected an overstated claim from the first catch-up
+pass above: `uwsgi`/`uwsgitop`/`uwsgi-tools` were never "reintroduced" by
+the v15 move on `master` -- they've been in the template continuously
+since at least `b9.dev0` (2026-04-01), which this repo's own original
+2026-07-24 grounding facts already said.
+
+Phase 3+5 (merged -- see below for why): wrote `verify_cloud_init_sync.bash`
+first, confirmed a genuine red (Node 26 vs 22, RDM_PIN_VERSION rc3 vs
+rc2; TEMPLATE_VERSION happened to already agree at "master"). First
+draft used `grep -oP`, which fails on this Mac's BSD `grep` (no `-P`
+support) -- rewrote using portable `sed -E` before trusting the red
+result. Then fixed both `cloud-init.yaml` and `cloud-init-multipass.yaml`
+directly to the final decided values (`TEMPLATE_VERSION=v14.0`,
+`RDM_PIN_VERSION=14.0.0`, Node 26) rather than syncing to an
+already-known-stale intermediate value first -- merging what the
+original plan called Phase 3 (sync) and Phase 5 (GA bump) into one edit,
+since splitting them would mean touching the same lines twice for no
+benefit. Re-ran `verify_cloud_init_sync.bash` (green), `yq eval '.'` on
+both files (parse clean), and `bash -n` against every embedded
+`write_files` script in both files individually (all pass; confirmed via
+`bash -n`, not just "the YAML parses").
+
+Also checked, since AWS's 16384-byte user-data limit is exactly what
+forced last round's removal of the vendored `invenio-cli` patch from
+`cloud-init.yaml`: today's comment-text growth brought `cloud-init.yaml`
+to 14613 bytes gzip+base64-encoded (clasm's actual encoding pipeline),
+up from an unmeasured-but-presumably-smaller prior state, leaving only
+~1770 bytes of headroom under the limit. Not a problem today, but tight
+enough to watch on any future edit to this file -- flagging here rather
+than assuming margin exists.
+
+`shellcheck` isn't installed on this Mac -- skipped it for
+`verify_cloud_init_sync.bash`, same as it's unavailable for anything
+else in this repo when working locally; `bash -n` was run instead
+everywhere shellcheck would normally also run.
+
+Next: Phase 4 -- decide and document (DECISIONS.md) whether the
+AWS-vs-Multipass split on the vendored `invenio-cli --runner granian`
+patch is the permanent intended state, or worth reworking given how
+little headroom `cloud-init.yaml` now has.
+
 ## 2026-07-27 (later still) -- v0.0.1: proof of concept
 
 Test instance terminated by the user. Bumped `codemeta.json`'s version

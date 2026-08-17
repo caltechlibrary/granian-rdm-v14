@@ -266,24 +266,28 @@ write_files:
       #
       # USAGE: setup_rdm_granian.bash [INSTANCE_NAME] [TEMPLATE_VERSION] [RDM_PIN_VERSION]
       #
-      # TEMPLATE_VERSION defaults to "master": cookiecutter-invenio-rdm has
-      # no v14.0 branch (branches stop at v13.0), confirmed 2026-07-27 via
-      # `gh api repos/inveniosoftware/cookiecutter-invenio-rdm/branches`.
-      # Unlike v13.0, master's own pyproject.toml already declares
-      # requires-python >= 3.14 and a [tool.uv.workspace] with the site
-      # package as a member -- the whole Pipfile-to-pyproject.toml
-      # conversion hack the v13 script needed is gone entirely.
+      # TEMPLATE_VERSION defaults to "v14.0": cookiecutter-invenio-rdm's
+      # master branch moved on to targeting v15 betas (commit 5707760,
+      # 2026-08-06) once v14 went GA -- but a real "v14.0" branch now
+      # exists (it didn't as of 2026-07-27, when branches stopped at
+      # v13.0; see DECISIONS.md's 2026-08-17 entry). v14.0's own
+      # pyproject.toml pins invenio-app-rdm~=14.0.0 (a clean match for
+      # GA, no forced downgrade) and requires-python ~=3.14.0. Like
+      # master before it, v14.0 already declares a [tool.uv.workspace]
+      # with the site package as a member -- the whole Pipfile-to-
+      # pyproject.toml conversion hack the v13 script needed is gone
+      # entirely.
       #
       # RDM_PIN_VERSION is the exact invenio-app-rdm release to pin via
-      # "uv add" after scaffolding -- master's template pins
-      # ~=14.0.0b11.dev1 (a beta) by default; override to the latest
-      # release candidate. Confirmed 2026-07-28 via PyPI that v14.0.0rc3
-      # (uploaded 2026-07-28) is the latest v14 pre-release, no GA yet --
-      # re-check before reusing this script later.
+      # "uv add" after scaffolding -- confirmed 2026-08-17 via PyPI that
+      # 14.0.0 is the actual GA release (info.version, Production/Stable
+      # classifier), reached via rc3 -> rc4 -> rc5 -> rc6 -> v14.0.0 --
+      # re-check before reusing this script later, since upstream has
+      # already tagged v15 betas past it.
       set -euo pipefail
       INSTANCE_NAME="${1:-rdm14-granian}"
-      TEMPLATE_VERSION="${2:-master}"
-      RDM_PIN_VERSION="${3:-14.0.0rc3}"
+      TEMPLATE_VERSION="${2:-v14.0}"
+      RDM_PIN_VERSION="${3:-14.0.0}"
       # Python package/module names can't contain hyphens -- cookiecutter's
       # "package_name" must be the underscored form, distinct from
       # "project_shortname" (which stays hyphenated for directory/URL use).
