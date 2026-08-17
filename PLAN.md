@@ -451,17 +451,86 @@ three newest entries, and NOTES.md's 2026-08-17 entries):
    topology that never calls `invenio-cli run`, so there's no actual
    feature gap on AWS to engineer a URL-fetch workaround for.
 
-**What this step did NOT do:** boot anything. Every fix above was
-verified statically (the new acceptance script, `yq eval '.'` parsing
-both files, `bash -n` against all 11 embedded `write_files` scripts
-across both files). None of it confirms that `uv add
+**What this step did NOT do (as first written):** boot anything. Every
+fix above was verified statically (the new acceptance script, `yq eval
+'.'` parsing both files, `bash -n` against all 11 embedded `write_files`
+scripts across both files). None of it confirmed that `uv add
 "invenio-app-rdm[opensearch2]==14.0.0"` and `invenio-cli install`
 actually resolve cleanly when scaffolded from the `v14.0` branch, or
 that the `.invenio` database/search patch, the nginx `/api` proxy fix,
 and the systemd hardening from Steps 3/7 still hold three RCs and a GA
-release later. A real boot -- AWS via `clasm`, or the cheaper/faster
-Multipass path -- is the next real step, and per this project's own
-established practice (NOTES.md, 2026-07-27: "launching one is a
-real-cost action on a shared AWS account -- didn't do that without
-asking") that's the user's call to kick off, not something to start
-unilaterally.
+release later.
+
+**Live verification, same day, on request:** the user asked directly for
+a Multipass launch + verify (the cheaper/faster path, not AWS -- no
+real-cost-instance concern), so this ran to completion rather than being
+deferred.
+
+- Launched `granian-rdm-v14-ga-test` (Ubuntu 26.04 arm64, 4 CPU/8GB/40GB,
+  same specs as the 2026-07-28 round) via `multipass launch --cloud-init
+  cloud-init-multipass.yaml`. `cloud-init status --long` reported `status:
+  done` with `errors: []` -- toolchain confirmed installed and correct:
+  Docker 29.1.3, uv 0.12.5, Python 3.14.7 (uv-managed), Node v26.7.0,
+  invenio-cli 1.11.0. (One pre-existing, unrelated finding: `sudo
+  cloud-init schema --system` fails strict schema validation on this
+  repo's `write_files[].permissions` fields, e.g. `'0775'` parsed as the
+  octal int `509` instead of a string -- cosmetic, `errors: []` still
+  held, not introduced this session, not fixed here.)
+- Ran `/usr/local/bin/setup_rdm_granian.bash` -- **confirmed the exact
+  thing this whole session was actually about**: `Writing cookiecutter
+  config for rdm14-granian (template v14.0)`, the uwsgi-strip step ran,
+  `Pinning invenio-app-rdm to 14.0.0` ran, and `Dependencies installed
+  successfully.` came back clean. The `v14.0` branch + GA pin combination
+  decided in DECISIONS.md really does resolve, not just in theory.
+  `invenio-cli services setup` then completed with `Successfully setup
+  all services.` and demo records loaded.
+  - New, real, non-fatal finding: `invenio-cli services setup`'s fixture
+    step tries to compile a message catalog (`pybabel compile`) and fails
+    with `babel.messages.frontend.OptionError: no message catalogs found
+    for domain 'messages'` -- the `v14.0`-scaffolded project has no
+    `.po`/`.mo` files for invenio-cli to compile. invenio-cli itself
+    swallows this non-fatally and continues (fixtures/demo records loaded
+    fine afterward, script exited 0) -- flagging here since it's new
+    versus the rc2/rc3 rounds, not because it blocked anything.
+- `invenio-cli services start` + `sudo systemctl start rdm.target`: all
+  five units (`docker`, `rdm`, `rdm_rest`, `rdm_celery`, `nginx`) active
+  immediately. `verify_rdm_boot.bash` passed all three checks on the
+  *first* try, with no settle wait needed at all -- better than the
+  original rc3 round, which needed 45s on its first boot.
+- **Reboot cycle 1** (`multipass restart`): real, separate bug found,
+  entirely in the host's Multipass install, not this project's cloud-init
+  or the RDM app -- `multipassd` itself crashed
+  (`libc++abi: ... mutex lock failed: Invalid argument`) handling the
+  guest's `sudo reboot`-triggered QMP `RESET` event, orphaning the old
+  `qemu-system-aarch64` process, which then held the disk image's write
+  lock and blocked the daemon's automatic recovery
+  (`Failed to get shared "write" lock`). Recovered by hand: `sudo kill
+  -KILL` the orphaned qemu process, then `sudo launchctl bootout` +
+  `bootstrap` on `com.canonical.multipassd` to get a clean daemon
+  restart. Once multipassd was healthy again, `verify_rdm_boot.bash`
+  passed all three checks clean -- **the guest itself came back up fine
+  on the first try**; only the host-side control plane needed manual
+  intervention. Matches (and now precisely documents, rather than just
+  gestures at) the standing `[[environment-macmini-multipass]]` memory
+  note about this machine's Multipass quirks.
+- **Reboot cycle 2** (`multipass restart`): this time the client-side
+  `multipass restart` command itself waited out the same daemon hiccup
+  internally and returned clean (no manual recovery needed) -- units
+  came back active immediately, but `verify_rdm_boot.bash` needed one
+  ~30s settle wait before the API/celery checks went green (same
+  transient-connection-refused-while-binding pattern as the original
+  round's first reboot, self-healed).
+- Fixed one more small doc-accuracy issue found live: both cloud-init
+  files' `echo "Pinning invenio-app-rdm to ${RDM_PIN_VERSION} (latest
+  release candidate)"` was stale now that `RDM_PIN_VERSION` is GA, not
+  an rc -- corrected to `(GA)` in both.
+
+**Net result:** the `v14.0` branch + `14.0.0` GA pin combination decided
+this session is now live-verified end-to-end on Multipass, including two
+full reboot cycles with the app itself coming back up correctly both
+times. The one real bug found (`multipassd` crashing on a guest reboot)
+is a host-environment issue, not something to fix in this repo -- noted
+here and in the standing Multipass-quirks memory for next time, not
+actioned further. AWS live verification is still not done and remains
+the user's call, per this project's standing practice around real-cost
+instances.

@@ -301,6 +301,44 @@ codemeta.json's version (currently 0.0.4) was deliberately left
 untouched -- versioning/release is this project's own separate step, not
 part of the six phases actually scoped for this session.
 
+## 2026-08-17 (later still) -- live-verified on Multipass: v14.0/GA really works
+
+User asked directly for a Multipass launch + verify -- the plan's
+"someone's call to make" caveat was answered same session. Full account
+in PLAN.md's Step 8 update; short version:
+
+Launched `granian-rdm-v14-ga-test` (same specs as the 2026-07-28 round).
+`setup_rdm_granian.bash` scaffolded from `template v14.0`, pinned
+`invenio-app-rdm` to `14.0.0`, and printed `Dependencies installed
+successfully.` -- **confirming the actual open question this whole
+session was about**: the `v14.0` branch + GA pin combination genuinely
+resolves, not just in theory. Services started, all five systemd units
+active, `verify_rdm_boot.bash` passed clean on the first try (no settle
+wait needed at all, unlike the original rc3 round's 45s).
+
+One new non-fatal finding: a `pybabel compile` step inside `invenio-cli
+services setup` fails (`no message catalogs found for domain
+'messages'`) on the `v14.0`-scaffolded project -- invenio-cli swallows it
+and continues, fixtures/demo data still loaded fine. Flagged in PLAN.md,
+not fixed -- didn't block anything.
+
+One real bug, but not this project's: `multipassd` crashed with a mutex
+error on the first `multipass restart`, orphaning the qemu process and
+blocking automatic recovery via a stale disk-image lock. Fixed by hand
+(`kill -KILL` the orphan, `launchctl bootout`+`bootstrap` the daemon) --
+purely a host Multipass issue, matches
+[[environment-macmini-multipass]]'s existing quirks note, not something
+to change in this repo. The guest itself survived both reboot cycles
+cleanly once the host-side daemon was healthy again.
+
+Also fixed live: both cloud-init files' `echo "...( latest release
+candidate)"` was stale now that the pin is GA -- corrected to `(GA)`.
+
+This closes out the session's live-verification gap. Not done: AWS
+verification (still the user's call, real-cost instance on a shared
+account) and updating `codemeta.json`'s version/description for this
+round's work -- both left as-is per this session's actual scope.
+
 ## 2026-07-27 (later still) -- v0.0.1: proof of concept
 
 Test instance terminated by the user. Bumped `codemeta.json`'s version

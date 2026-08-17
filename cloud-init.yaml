@@ -420,7 +420,7 @@ write_files:
       # even going to run.
       sed -i '/"uwsgi/d' pyproject.toml
 
-      echo "Pinning invenio-app-rdm to ${RDM_PIN_VERSION} (latest release candidate)"
+      echo "Pinning invenio-app-rdm to ${RDM_PIN_VERSION} (GA)"
       uv add "invenio-app-rdm[opensearch2]==${RDM_PIN_VERSION}"
 
       echo "Adding granian as a dependency"
