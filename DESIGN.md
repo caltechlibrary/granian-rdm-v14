@@ -212,6 +212,18 @@ two cloud-init files silently diverged on 2026-07-28 -- `cloud-init.yaml`
 (AWS) was bumped to `RDM_PIN_VERSION=14.0.0rc3`/Node 26 and had the
 vendored `invenio-cli --runner granian` patch removed entirely (AWS's
 16384-byte user-data limit); `cloud-init-multipass.yaml` was never
-bumped and still carries the patch. See NOTES.md's 2026-08-17 entry for
-the full reconstruction from `git log`, and the current plan's Phase 3/4
-for the fix.
+bumped and still carries the patch. See NOTES.md's 2026-08-17 entries
+for the full reconstruction from `git log`.
+
+**Resolution (2026-08-17, PLAN.md Step 8):** `TEMPLATE_VERSION` switched
+to `v14.0` (DECISIONS.md), both files re-pinned to `RDM_PIN_VERSION=14.0.0`
+GA and Node 26, and a new `verify_cloud_init_sync.bash` acceptance script
+added test-first (red on the real drift, green after the fix) so this
+kind of divergence is caught automatically going forward instead of
+found by accident three weeks later. The AWS/Multipass patch split was
+evaluated and kept as permanent, on usage-fit grounds, not just the byte
+limit (DECISIONS.md). All of this is statically verified only --
+`TEMPLATE_VERSION=v14.0`'s actual `uv add`/`invenio-cli install`
+dependency resolution against GA has not been confirmed against a real
+boot. See PLAN.md Step 8 for the full session write-up and what a live
+verification pass would still need to check.

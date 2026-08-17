@@ -276,6 +276,31 @@ that a real boot (AWS or Multipass) is still needed to confirm `uv`/
 `invenio-cli install` actually resolves cleanly against v14.0/GA -- that
 live step is the user's call, not something to kick off unilaterally.
 
+## 2026-08-17 (later still) -- Phase 6: wrap-up, session done
+
+Added PLAN.md's new "Step 8" (full write-up of this session: the
+undocumented-drift fix, the GA re-pin, the `v14.0` template switch, and
+the patch-split decision, plus an explicit "what this did NOT do" list),
+fixed PLAN.md Step 3's stale `master`/`14.0.0rc2` references to point at
+Step 8 instead, and closed the loop on DESIGN.md's 2026-08-17 update
+section with a short "Resolution" paragraph pointing at Step 8.
+
+This session (all six planned phases) is now fully static: doc catch-up,
+the `v14.0` scaffold-source decision, the cross-platform sync fix (test
+written red-first, fixed to green), the patch-split decision, and this
+wrap-up. Nothing was booted -- no EC2 instance, no Multipass VM. The
+actual value of switching to the `v14.0` branch and re-pinning to GA
+`14.0.0` (does `uv add`/`invenio-cli install` really resolve cleanly?
+do the `.invenio`, nginx, and systemd fixes from the last live round
+still hold?) is unconfirmed until someone runs a real boot. Not started
+here, per this project's own standing practice of not launching
+cost-bearing AWS instances unilaterally -- that, or a Multipass run, is
+the next real step and is the user's call.
+
+codemeta.json's version (currently 0.0.4) was deliberately left
+untouched -- versioning/release is this project's own separate step, not
+part of the six phases actually scoped for this session.
+
 ## 2026-07-27 (later still) -- v0.0.1: proof of concept
 
 Test instance terminated by the user. Bumped `codemeta.json`'s version

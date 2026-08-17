@@ -73,8 +73,10 @@ finished, so `.bashrc`'s nvm loader line is picked up -- then:
 This runs to completion unattended once started -- but run it
 interactively rather than backgrounding it the first time, so any
 failure is visible immediately rather than needing a log dig afterward.
-Defaults to instance name `rdm14-granian`, template `master`, RDM pin
-`14.0.0rc2` -- override via positional args if needed.
+Defaults to instance name `rdm14-granian`, template `v14.0`, RDM pin
+`14.0.0` (GA -- updated 2026-08-17, see Step 8 and DECISIONS.md; was
+`master`/`14.0.0rc2` when this step was first written) -- override via
+positional args if needed.
 
 **Real bugs found via the first live run, now fixed in `cloud-init.yaml`
 (watch for these regressing if the script is edited again):**
@@ -97,7 +99,7 @@ Defaults to instance name `rdm14-granian`, template `master`, RDM pin
    install`'s webpack step. Now appended to `.bashrc` automatically.
 
 **Watch for, in order, on a fresh run:**
-1. `uv add "invenio-app-rdm[opensearch2]==14.0.0rc2"` and
+1. `uv add "invenio-app-rdm[opensearch2]==14.0.0"` and
    `invenio-cli install` completing without dependency-resolution errors
    (the uwsgi-package strip is the one known risk point remaining --
    unrelated packages, unrelated to Python version, see `cloud-init.yaml`'s
@@ -410,3 +412,56 @@ introduced/left unnoticed.
      pipeline's reported status. **Fix:** run explicitly `sudo -u
      ubuntu`, and capture output via command substitution before
      matching against it (no live pipe to the subprocess).
+
+## Step 8 -- 2026-08-17: v14 GA re-pin, template switch, cross-platform sync
+
+**Status: docs and scripts updated and statically validated; NOT yet
+live-verified against a real boot.** Resuming this project after ~3
+weeks turned up two separate problems, worked through phase by phase
+(full detail in DESIGN.md's "Update -- 2026-08-17" section, DECISIONS.md's
+three newest entries, and NOTES.md's 2026-08-17 entries):
+
+1. **Undocumented drift.** `cloud-init.yaml` (AWS) and
+   `cloud-init-multipass.yaml` had silently diverged during an
+   unrecorded 2026-07-28 session -- different `RDM_PIN_VERSION` (rc3 vs
+   rc2) and Node version (26 vs 22) defaults, and the vendored
+   `invenio-cli --runner granian` patch present on Multipass only (an
+   AWS 16384-byte user-data limit fix that was never written down).
+   Fixed test-first: `verify_cloud_init_sync.bash` (new, repo root)
+   encodes "these two files must agree on Node/RDM-pin/template
+   version" as a standing acceptance check -- red before the fix (real
+   disagreement, not a false positive; first draft used `grep -oP`,
+   which doesn't exist on this Mac's BSD `grep`, caught and rewritten
+   with portable `sed -E`), green after.
+2. **v14 GA.** `invenio-app-rdm` 14.0.0 is now the actual GA release
+   (verified live via PyPI's `info.version` and GitHub's tag history:
+   `rc3 -> rc4 -> rc5 -> rc6 -> v14.0.0`). Re-pinned both files to
+   `RDM_PIN_VERSION=14.0.0` per this document's own "pin the exact patch,
+   re-pin to GA once it tags" convention (DESIGN.md's original scope
+   decisions). Also switched `TEMPLATE_VERSION`'s default from `master`
+   to `v14.0` -- `master` moved on to targeting v15 betas once v14 went
+   GA, but a real `v14.0` cookiecutter-invenio-rdm branch now exists
+   (didn't as of 2026-07-27) and pins `~=14.0.0` cleanly, no downgrade
+   needed. See DECISIONS.md for the full comparison against staying on
+   `master` or pinning a bare commit SHA.
+3. **Patch-split decision.** Rather than treat "patch on Multipass only"
+   as a bug to fix now that AWS's byte-limit headroom is tight (14613 of
+   16384 bytes used), decided it's the right permanent state on its own
+   merits: `cloud-init.yaml` provisions a production-shaped systemd/nginx
+   topology that never calls `invenio-cli run`, so there's no actual
+   feature gap on AWS to engineer a URL-fetch workaround for.
+
+**What this step did NOT do:** boot anything. Every fix above was
+verified statically (the new acceptance script, `yq eval '.'` parsing
+both files, `bash -n` against all 11 embedded `write_files` scripts
+across both files). None of it confirms that `uv add
+"invenio-app-rdm[opensearch2]==14.0.0"` and `invenio-cli install`
+actually resolve cleanly when scaffolded from the `v14.0` branch, or
+that the `.invenio` database/search patch, the nginx `/api` proxy fix,
+and the systemd hardening from Steps 3/7 still hold three RCs and a GA
+release later. A real boot -- AWS via `clasm`, or the cheaper/faster
+Multipass path -- is the next real step, and per this project's own
+established practice (NOTES.md, 2026-07-27: "launching one is a
+real-cost action on a shared AWS account -- didn't do that without
+asking") that's the user's call to kick off, not something to start
+unilaterally.
