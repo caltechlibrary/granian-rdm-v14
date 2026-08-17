@@ -339,6 +339,10 @@ verification (still the user's call, real-cost instance on a shared
 account) and updating `codemeta.json`'s version/description for this
 round's work -- both left as-is per this session's actual scope.
 
+`granian-rdm-v14-ga-test` torn down (`multipass delete` + `multipass
+purge`) on the user's instruction once verification was done -- same
+practice as the 2026-07-27 round's test instance.
+
 ## 2026-07-27 (later still) -- v0.0.1: proof of concept
 
 Test instance terminated by the user. Bumped `codemeta.json`'s version
