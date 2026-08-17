@@ -179,3 +179,34 @@ pain points, separate from the bring-up itself:
   rescoping decision on 2026-07-22).
 - No CloudFront/container-registry work (out of scope; someday/maybe per
   `clasm`'s own backlog).
+
+## Update -- 2026-08-17: v14 GA, and a new template-drift question
+
+Two things changed since this document was last written (2026-07-27),
+verified live rather than assumed:
+
+1. **`invenio-app-rdm` 14.0.0 is now GA.** PyPI's `info.version` is
+   `14.0.0` (Production/Stable). GitHub tags show `rc3` (this doc's
+   "grounding facts" pin) was followed by `rc4`, `rc5`, `rc6`, then the
+   `v14.0.0` GA tag. The exact-pin approach this document already
+   committed to ("re-pin to GA once it tags, same pattern used for
+   production in the v13 round") now applies -- see the sync-fix and
+   pin-bump phases of the current implementation plan.
+2. **`cookiecutter-invenio-rdm`'s `master` branch has moved on to v15.**
+   It now pins `invenio-app-rdm~=15.0.0b2.dev0` and has reintroduced
+   `uwsgi`/`uwsgitop`/`uwsgi-tools` into its `pyproject.toml` template --
+   neither was true when `master` was chosen as the scaffold source
+   (2026-07-24, back when `master` cleanly tracked v14 pre-releases).
+   Scaffolding from `master` today means scaffolding for v15 and
+   force-downgrading to `invenio-app-rdm==14.0.0`, not the clean match it
+   was originally. This is a new open question -- not resolved here, see
+   DECISIONS.md's newest entry for the choice made and why.
+
+Also confirmed (not previously written down anywhere): this project's own
+two cloud-init files silently diverged on 2026-07-28 -- `cloud-init.yaml`
+(AWS) was bumped to `RDM_PIN_VERSION=14.0.0rc3`/Node 26 and had the
+vendored `invenio-cli --runner granian` patch removed entirely (AWS's
+16384-byte user-data limit); `cloud-init-multipass.yaml` was never
+bumped and still carries the patch. See NOTES.md's 2026-08-17 entry for
+the full reconstruction from `git log`, and the current plan's Phase 3/4
+for the fix.

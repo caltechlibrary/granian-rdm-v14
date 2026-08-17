@@ -146,6 +146,67 @@ verified byte-identical between embedded and source copies each time,
 Not done: a third reboot cycle (judged unnecessary); tearing down or
 keeping the test instance is the user's call, not done unilaterally.
 
+## 2026-08-17 -- doc catch-up: reconciling undocumented 07-28 work + v14 GA
+
+Resumed this project after ~3 weeks. Before touching anything for v14 GA,
+checked the repo's actual state against `git log` rather than trusting
+these docs, since `NOTES.md`/`DESIGN.md`/`DECISIONS.md`/`PLAN.md` all
+stopped mid-day on 2026-07-27 while `git log` showed four more commits
+that same evening (07-28), none of them written up anywhere:
+`release v0.0.2`, `fixed cloud init size issue`, `fixed init size and
+cleanup`, `Added path.repo and confirmed /Sites setting`, `prep 0.0.4`.
+`codemeta.json` is at `version: "0.0.4"`; every prose doc still describes
+a `v0.0.1` proof-of-concept.
+
+What that undocumented work actually did, confirmed via `git log --stat`
+and grepping both cloud-init files directly (not assumed from commit
+messages):
+
+1. **`cloud-init.yaml` (AWS) hit AWS's 16384-byte user-data limit.**
+   Fixed by deleting the vendored `invenio-cli --runner granian` patch's
+   `write_files` entries (`apply_invenio_cli_patch.bash` and the two
+   patched files under `/usr/local/share/invenio-cli-patch/`) --755 lines
+   removed. `cloud-init.yaml` no longer applies that patch at all.
+2. **`cloud-init-multipass.yaml` was never touched by the size fix**
+   (Multipass has no user-data size limit) -- it still carries the full
+   vendored patch, `apply_invenio_cli_patch.bash` and all.
+3. Somewhere in the same session, `cloud-init.yaml`'s `RDM_PIN_VERSION`
+   default was bumped `14.0.0rc2` -> `14.0.0rc3` and its Node version
+   bumped `22` -> `26`. **`cloud-init-multipass.yaml` was not bumped for
+   either** -- it's still `14.0.0rc2` / Node `22`.
+4. The one change that *did* land in both files identically: the
+   OpenSearch `path.repo` fix (`Added path.repo and confirmed /Sites
+   setting`) -- confirmed byte-identical between the two files' relevant
+   sections.
+
+Net result: `cloud-init.yaml` and `cloud-init-multipass.yaml`, which
+`README.md` and prior notes describe as "kept in sync," have silently
+diverged on three real axes (RDM pin, Node version, invenio-cli patch
+presence) and only stayed in sync on the fourth (path.repo). This wasn't
+caught because nothing in the repo checks it -- next up (Phase 3 of the
+current plan) is a small acceptance script to make that divergence loud
+instead of silent, the same pattern `verify_rdm_boot.bash` already uses
+for the systemd-hardening work.
+
+Separately, verified live against GitHub/PyPI today: `invenio-app-rdm`
+14.0.0 is now the actual GA release (PyPI `info.version` == `14.0.0`,
+classified Production/Stable; GitHub tags run
+`rc3 -> rc4 -> rc5 -> rc6 -> v14.0.0`, three RCs past whatever this repo
+last pinned to). Upstream has already moved on to v15 betas
+(`v15.0.0b0.dev0` through `v15.0.0b3.dev0` all tagged), and
+`cookiecutter-invenio-rdm`'s `master` branch -- the template
+`setup_rdm_granian.bash` scaffolds from -- now pins
+`invenio-app-rdm~=15.0.0b2.dev0` and has reintroduced
+`uwsgi`/`uwsgitop`/`uwsgi-tools` into its `pyproject.toml` template. That
+wasn't true when DESIGN.md's "Grounding facts" were last checked
+(2026-07-24/27) -- `master` scaffolded cleanly for v14 back then. This is
+a new open question, not just a version-string bump; see DECISIONS.md's
+next entry.
+
+Next: DECISIONS.md entry on which cookiecutter source to scaffold from
+for a clean v14 GA instance (Phase 2 of the current plan), then the
+sync-fix acceptance script (Phase 3).
+
 ## 2026-07-27 (later still) -- v0.0.1: proof of concept
 
 Test instance terminated by the user. Bumped `codemeta.json`'s version

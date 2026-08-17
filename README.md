@@ -1,22 +1,33 @@
 
 # Granian/RDM v14 experimental repository
 
-Robert's experiment bringing up Invenio RDM v14 (latest release candidate)
-under [Granian](https://github.com/emmett-framework/granian) instead of
+Robert's experiment bringing up Invenio RDM v14 under
+[Granian](https://github.com/emmett-framework/granian) instead of
 uWSGI/Gunicorn, provisioned on AWS via
-[clasm](https://github.com/caltechlibrary/clasm), managed via `uv`.
-Free-threaded Python 3.14t was tried and abandoned (SQLAlchemy's own
-bundled C extension re-enables the GIL process-wide, see DECISIONS.md);
-runs on standard Python 3.14 instead.
+[clasm](https://github.com/caltechlibrary/clasm) (and, as of 2026-07-28,
+also locally via Multipass), managed via `uv`. Free-threaded Python 3.14t
+was tried and abandoned (SQLAlchemy's own bundled C extension re-enables
+the GIL process-wide, see DECISIONS.md); runs on standard Python 3.14
+instead. `invenio-app-rdm` 14.0.0 GA is now out upstream -- this repo's
+own pin hasn't caught up yet, see DESIGN.md's 2026-08-17 update and
+DECISIONS.md for the in-progress re-pin.
 
-**Status: v0.0.1, proof of concept.** Bring-up (PLAN.md Steps 1-5), the
-vendored `invenio-cli` dev-runner patch (Step 6), and systemd reboot
-hardening (Step 7) are all live-verified against a real EC2 instance --
-including two full `sudo reboot` cycles with zero manual intervention.
-See PLAN.md Step 7's "Real bugs found during Step 7's live verification"
-for what that live pass caught and fixed (a stale `.invenio` workaround,
-a broken nginx config that meant HTTPS access likely never worked before,
-and an `/api` proxy-prefix bug).
+**Status: v0.0.4.** Bring-up (PLAN.md Steps 1-5), the vendored
+`invenio-cli` dev-runner patch (Step 6), and systemd reboot hardening
+(Step 7) are all live-verified against a real EC2 instance -- including
+two full `sudo reboot` cycles with zero manual intervention. See PLAN.md
+Step 7's "Real bugs found during Step 7's live verification" for what
+that live pass caught and fixed (a stale `.invenio` workaround, a broken
+nginx config that meant HTTPS access likely never worked before, and an
+`/api` proxy-prefix bug).
+
+**`cloud-init.yaml` (AWS) and `cloud-init-multipass.yaml` have since
+drifted out of sync** (found 2026-08-17, see NOTES.md): different
+`RDM_PIN_VERSION`/Node defaults, and the vendored `invenio-cli` patch
+below was dropped from `cloud-init.yaml` entirely to fit AWS's
+16384-byte user-data limit, while `cloud-init-multipass.yaml` still
+carries it. A fix is in progress -- don't assume the two files agree on
+anything until that lands.
 
 This follows on from
 [gunicorn-rdm-v13](https://github.com/caltechlibrary/gunicorn-rdm-v13), a
@@ -30,6 +41,14 @@ including Step 6/7's operability follow-on work, and [DECISIONS.md](DECISIONS.md
 for the choices made along the way.
 
 ## `invenio-cli` dev runner patch (vendored)
+
+**As of 2026-07-28, this patch is wired into `cloud-init-multipass.yaml`
+only.** It was removed from `cloud-init.yaml` (AWS) the same day to fit
+under AWS's 16384-byte user-data limit -- a fresh AWS instance from this
+repo currently does *not* get `invenio-cli run --runner granian` for
+free. Whether that split is permanent or worth reworking (e.g. fetching
+the patch from a URL at boot instead of embedding it) is an open
+decision, see DECISIONS.md.
 
 `vendor/invenio_cli/` holds a small, additive patch on top of stock
 `invenio-cli==1.11.0`, adding a `--runner` option to `invenio-cli run`
