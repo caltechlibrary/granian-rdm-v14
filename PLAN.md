@@ -531,6 +531,78 @@ full reboot cycles with the app itself coming back up correctly both
 times. The one real bug found (`multipassd` crashing on a guest reboot)
 is a host-environment issue, not something to fix in this repo -- noted
 here and in the standing Multipass-quirks memory for next time, not
-actioned further. AWS live verification is still not done and remains
-the user's call, per this project's standing practice around real-cost
-instances.
+actioned further.
+
+**AWS live verification, same day, via clasm + SSM (user-driven):** the
+user launched a real EC2 instance (`i-0acc33805efb256e0`, security group
+`invenio-campus`, reusing the `granian-rdm-v14-test` IAM role from the
+2026-07-27 round) using this session's `cloud-init.yaml` and ran the full
+walkthrough themselves, reporting output back for diagnosis at each step
+-- consistent with this project's standing practice for its
+network-restricted AWS account.
+
+- **SSH access was blocked** (security-group-restricted to campus
+  network, apparently narrower than expected -- not investigated
+  further, SSM was the working alternative throughout). Getting SSM
+  working required two real fixes, both environment/tooling, not
+  cloud-init issues:
+  1. `aws ssm start-session` requires the separate Session Manager
+     Plugin, not bundled with the AWS CLI -- not in MacPorts (checked
+     live: `port search session-manager-plugin` empty), installed from
+     AWS's official signed `.pkg`
+     (`s3.amazonaws.com/session-manager-downloads/plugin/latest/mac_arm64/`)
+     directly on `MACMINI-RD.local` (the machine running this session).
+     AWS's installer does not itself symlink the binary onto `PATH` --
+     a documented manual step (`ln -s
+     /usr/local/sessionmanagerplugin/bin/session-manager-plugin
+     /usr/local/bin/`) that has to be done separately.
+  2. Once in an SSM session, commands run as `ssm-user`, not `ubuntu` --
+     `invenio-cli`/`uv` live under `/home/ubuntu/.local/bin`, invisible
+     to `ssm-user`'s `PATH`, surfacing as a plain `invenio-cli: command
+     not found` rather than anything cloud-init-related. Fix: `sudo -u
+     ubuntu -H bash -lc '...'` for anything needing the app's toolchain
+     (same pattern `verify_rdm_boot.bash`'s own `celery_responds()` check
+     already uses internally, see Step 7's bug #4 -- this is the second
+     time this exact ssm-user/root-vs-ubuntu PATH gap has bitten this
+     project).
+- `cloud-init status --long` (via `aws ssm get-command-invocation`)
+  reported `status: done`, `errors: []`, `detail: DataSourceEc2Local` --
+  same clean result as Multipass, confirming `install_rdm_toolchain.bash`
+  ran correctly on real EC2. (SSM reports this command's own exit code 2
+  as `"Status": "Failed"` -- that's `cloud-init status`'s normal exit
+  code for "done with recoverable warnings," not an actual failure; the
+  Multipass round hit the identical exit-2-but-fine pattern. One
+  curiosity: the `write_files[].permissions` schema-validation warning
+  seen on Multipass's `cloud-init schema --system` did not appear here --
+  not investigated further, `errors: []` held on both either way.)
+- `setup_rdm_granian.bash` ran to completion via an interactive SSM
+  session, producing the identical success markers seen on Multipass
+  (`template v14.0`, uwsgi-strip, `Pinning invenio-app-rdm to 14.0.0
+  (GA)`, `Dependencies installed successfully.`) -- **the actual thing
+  this whole session needed to prove: the `v14.0`/GA combination
+  resolves on real EC2, not just Multipass.** Its closing instructions
+  correctly omitted the "Dev workflow" (`invenio-cli run --runner
+  granian`) section that appears on Multipass -- live confirmation that
+  Phase 4's "patch stays Multipass-only" decision is actually taking
+  effect on AWS, not just documented as intended.
+- `invenio-cli services start` + `sudo systemctl start rdm.target` +
+  `verify_rdm_boot.bash rdm14-granian`: all three checks passed
+  immediately, no settle wait at all -- better than the original rc3
+  round's 45s first-boot wait.
+- **Reboot cycle 1** (`sudo reboot` via the SSM session, reconnect via a
+  fresh `aws ssm start-session`): all three checks passed immediately on
+  reconnect, no settle wait needed.
+- **Reboot cycle 2**: first `verify_rdm_boot.bash` run failed the
+  API/celery checks (units were active, but the app wasn't answering
+  yet); an immediate re-run passed clean. Textbook instance of the same
+  transient "nginx up before `rdm_rest` finishes binding its port"
+  pattern documented in this step's Step 7 write-up and seen again on
+  Multipass's second reboot -- self-heals, not a regression.
+
+**Overall net result:** both the Multipass and AWS paths for this
+repo's `cloud-init.yaml`/`cloud-init-multipass.yaml` are now live-verified
+end-to-end against `v14.0`/GA `14.0.0`, including reboot survivability on
+both platforms. The two real bugs found this round (`multipassd`'s
+guest-reboot mutex crash, and the `ssm-user`-vs-`ubuntu` PATH gap) are
+both host/tooling issues outside this repo, not cloud-init defects --
+recorded here and in memory for next time.

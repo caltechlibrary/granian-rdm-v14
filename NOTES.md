@@ -343,6 +343,111 @@ round's work -- both left as-is per this session's actual scope.
 purge`) on the user's instruction once verification was done -- same
 practice as the 2026-07-27 round's test instance.
 
+## 2026-08-17 (later still) -- AWS live-verified too, via clasm + SSM
+
+Same day, user launched a real EC2 instance (`i-0acc33805efb256e0`,
+reusing the `granian-rdm-v14-test` IAM role) via clasm and ran the whole
+walkthrough themselves over SSM, pasting output back at each step for
+diagnosis -- full account in PLAN.md's Step 8. Short version: it works.
+`setup_rdm_granian.bash` produced the identical success markers seen on
+Multipass (`template v14.0`, `Pinning invenio-app-rdm to 14.0.0 (GA)`,
+`Dependencies installed successfully.`) and its closing instructions
+correctly omitted the Multipass-only dev-runner section, live-confirming
+Phase 4's patch-split decision actually holds on real AWS. Two reboot
+cycles both passed (the second needed one retry -- same transient
+nginx/rdm_rest-binding pattern seen everywhere else this project has
+tested reboots).
+
+Two real bugs found, both environment/tooling, not cloud-init:
+1. SSH was blocked by the `invenio-campus` security group even from a
+   campus-network host -- not investigated further; SSM was the working
+   path throughout.
+2. Getting SSM working needed two fixes: the Session Manager Plugin
+   isn't in MacPorts and isn't auto-symlinked by AWS's own `.pkg`
+   installer (installed by hand on `MACMINI-RD.local`, this session's own
+   machine); and SSM sessions run as `ssm-user`, not `ubuntu`, so
+   `invenio-cli`/`uv` (under `/home/ubuntu/.local/bin`) aren't on PATH by
+   default -- `sudo -u ubuntu -H bash -lc '...'` needed for anything
+   app-related. This is the same category of bug as Step 7's
+   `celery_responds()` root-vs-ubuntu PATH fix -- worth remembering this
+   project's scripts assume an `ubuntu`-user shell, not whatever account
+   actually connects.
+
+Both platforms this repo supports (`cloud-init.yaml` and
+`cloud-init-multipass.yaml`) are now live-verified end-to-end against
+`v14.0`/GA `14.0.0`, including reboot survivability. That's the real
+close of this whole session's work, not just the static/doc phases.
+
+## 2026-08-17 (later still) -- v0.0.5 release prep
+
+EC2 test instance (`i-0acc33805efb256e0`) terminated on the user's
+instruction now that both platforms are verified. Version bumped
+0.0.4 -> 0.0.5 in `codemeta.json` (`dateModified`/`datePublished`
+2026-08-17, `developmentStatus` `concept` -> `active` -- judgment call:
+this is now a live-verified working setup on two platforms, not just a
+proof of concept; flagged to the user rather than assumed silently),
+description and `releaseNotes` rewritten to summarize this session's
+actual work (GA re-pin, `v14.0` branch switch, the sync-fix regression
+test, the patch-split decision, both-platform live verification).
+Regenerated `about.md`/`CITATION.cff` via `cmt codemeta.json about.md
+CITATION.cff` rather than hand-editing the generated files. `README.md`'s
+status section rewritten to match. `cmt` printed `warning: missing
+license file` both times -- this repo has never had a `LICENSE` file
+(pre-existing, not something introduced or fixed this session, but worth
+flagging before sharing with colleagues since `codemeta.json`/
+`CITATION.cff`/`about.md` all link to a `LICENSE` URL that doesn't
+resolve to anything in-repo). Commit/push and any actual GitHub release
+step left to the user, per standing practice.
+
+Added `LICENSE` (BSD-3-Clause "Caltech" text, matching `clasm`'s exact
+wording/wrapping -- the closest sibling project, same 2026 copyright
+year) at the user's request. Re-ran `cmt codemeta.json about.md
+CITATION.cff` afterward -- the `missing license file` warning is gone,
+confirming `cmt` now finds it; the generated files' content itself was
+unaffected (the license text lives at the separate GitHub Pages URL
+`about.md`/`CITATION.cff` already linked to, not inlined by `cmt`).
+
+## 2026-08-17 (later still) -- licensing scope clarified: Invenio RDM is separately MIT-licensed
+
+User asked directly whether it's documented that Invenio RDM itself has
+its own license, separate from this repo's Caltech copyright. It wasn't
+-- checked live (`curl` the actual `LICENSE` files, not WebFetch's
+summarizing model, which paraphrased instead of quoting verbatim the
+first time): `invenio-app-rdm`, `invenio-cli`, and
+`cookiecutter-invenio-rdm` are all MIT-licensed by the Invenio community
+(CERN, Northwestern University, TU Wien, Graz University of Technology,
+Forschungszentrum Jülich GmbH, Ubiquity Press). `codemeta.json`'s
+`copyrightHolder`/`license` fields read as an unscoped blanket claim with
+nothing distinguishing "this repo's own scripts" from "the software this
+repo provisions."
+
+Also found, not previously noticed: `vendor/invenio_cli/local.py` and
+`cli.py`'s own header comments say "see LICENSE file for more details,"
+but no such file existed anywhere under `vendor/` -- a real, if minor,
+documentation gap in the vendoring work from 2026-07-27.
+
+Fixed:
+- `vendor/invenio_cli/LICENSE` added -- verbatim upstream `invenio-cli`
+  MIT license text (fetched via `curl`, not paraphrased), so the
+  vendored files' own header comments now resolve to something real.
+- `NOTICE.md` added at the repo root -- the single place documenting the
+  three-way split: this repo's own scripts (Caltech, `LICENSE`), Invenio
+  RDM itself (MIT, Invenio community, not redistributed here), and the
+  vendored `invenio-cli` patch (MIT, retained in
+  `vendor/invenio_cli/LICENSE`).
+- `codemeta.json` gained a `copyrightNotice` field (a real schema.org/
+  CreativeWork property, valid in codemeta 3.0's context) stating the
+  same scoping explicitly, rather than overloading `license`/
+  `copyrightHolder` in a way that would misleadingly claim Invenio RDM
+  itself. `cmt` doesn't render `copyrightNotice` into `about.md`/
+  `CITATION.cff` (confirmed -- neither changed beyond what was already
+  regenerated for v0.0.5), so it's there for raw-JSON-LD consumers; the
+  human-facing version lives in `NOTICE.md` and README.md's new
+  "License" section.
+- Also fixed, found while in `README.md` for this: its opening paragraph
+  still said "GA is now out upstream -- this repo's own pin hasn't
+  caught up yet," stale since the actual re-pin (Phase 3/5, same day).
+
 ## 2026-07-27 (later still) -- v0.0.1: proof of concept
 
 Test instance terminated by the user. Bumped `codemeta.json`'s version

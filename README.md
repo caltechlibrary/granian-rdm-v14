@@ -8,26 +8,25 @@ uWSGI/Gunicorn, provisioned on AWS via
 also locally via Multipass), managed via `uv`. Free-threaded Python 3.14t
 was tried and abandoned (SQLAlchemy's own bundled C extension re-enables
 the GIL process-wide, see DECISIONS.md); runs on standard Python 3.14
-instead. `invenio-app-rdm` 14.0.0 GA is now out upstream -- this repo's
-own pin hasn't caught up yet, see DESIGN.md's 2026-08-17 update and
-DECISIONS.md for the in-progress re-pin.
+instead. Pinned to `invenio-app-rdm` 14.0.0 **GA** as of 2026-08-17 (see
+DESIGN.md's update and DECISIONS.md for the re-pin and the
+`cookiecutter-invenio-rdm` `v14.0` branch switch that went with it).
 
-**Status: v0.0.4.** Bring-up (PLAN.md Steps 1-5), the vendored
-`invenio-cli` dev-runner patch (Step 6), and systemd reboot hardening
-(Step 7) are all live-verified against a real EC2 instance -- including
-two full `sudo reboot` cycles with zero manual intervention. See PLAN.md
-Step 7's "Real bugs found during Step 7's live verification" for what
-that live pass caught and fixed (a stale `.invenio` workaround, a broken
-nginx config that meant HTTPS access likely never worked before, and an
-`/api` proxy-prefix bug).
-
-**`cloud-init.yaml` (AWS) and `cloud-init-multipass.yaml` have since
-drifted out of sync** (found 2026-08-17, see NOTES.md): different
-`RDM_PIN_VERSION`/Node defaults, and the vendored `invenio-cli` patch
-below was dropped from `cloud-init.yaml` entirely to fit AWS's
-16384-byte user-data limit, while `cloud-init-multipass.yaml` still
-carries it. A fix is in progress -- don't assume the two files agree on
-anything until that lands.
+**Status: v0.0.5.** Pinned to `invenio-app-rdm` 14.0.0 **GA** (scaffolded
+from cookiecutter-invenio-rdm's `v14.0` branch), and live-verified end to
+end on **both** AWS EC2 and Multipass, including two full `sudo reboot`
+cycles on each platform with the app self-healing correctly both times.
+`cloud-init.yaml` and `cloud-init-multipass.yaml` are kept in sync on
+`RDM_PIN_VERSION`/Node/`TEMPLATE_VERSION` by a standing regression check
+(`verify_cloud_init_sync.bash`) after those drifted apart undetected for
+three weeks -- see NOTES.md's 2026-08-17 entries for the full account,
+including two real bugs found along the way that turned out to be
+environment/tooling issues (a Multipass daemon crash on guest reboot, an
+SSM `ssm-user`-vs-`ubuntu` `PATH` gap) rather than anything wrong with
+this repo's cloud-init files. See PLAN.md Step 7's "Real bugs found
+during Step 7's live verification" for the original (2026-07-27) live
+pass's findings (a stale `.invenio` workaround, a broken nginx config,
+an `/api` proxy-prefix bug).
 
 This follows on from
 [gunicorn-rdm-v13](https://github.com/caltechlibrary/gunicorn-rdm-v13), a
@@ -91,3 +90,15 @@ python3 -m venv /tmp/invenio-cli-test-venv
 cd tests && /tmp/invenio-cli-test-venv/bin/python -m pytest -q \
     test_local_patches.py test_cli_patches.py
 ```
+
+## License
+
+This repository's own scripts and documentation are Copyright (c) 2026,
+Caltech, under [LICENSE](LICENSE) (BSD-3-Clause). **Invenio RDM itself is
+separately licensed and is not covered by that license** -- `invenio-app-rdm`,
+`invenio-cli`, and `cookiecutter-invenio-rdm` are MIT-licensed projects of
+the [Invenio community](https://github.com/inveniosoftware), installed by
+this repo's cloud-init scripts at boot time rather than redistributed
+here. The one exception is the vendored `invenio-cli` patch above, which
+retains its original MIT license (`vendor/invenio_cli/LICENSE`). See
+[NOTICE.md](NOTICE.md) for the full breakdown.

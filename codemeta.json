@@ -12,9 +12,9 @@
     }
   ],
   "dateCreated": "2026-07-27",
-  "dateModified": "2026-07-28",
-  "datePublished": "2026-07-28",
-  "description": "Robert's experiment bringing up Invenio RDM v14 (latest release candidate) under Granian instead of uWSGI/Gunicorn, provisioned on AWS via clasm, managed via uv. Free-threaded Python 3.14t was tried and abandoned (SQLAlchemy's own bundled C extension re-enables the GIL process-wide); runs on standard Python 3.14 instead. v0.0.1: proof of concept live-verified end to end, including reboot-survivable systemd hardening.",
+  "dateModified": "2026-08-17",
+  "datePublished": "2026-08-17",
+  "description": "Robert's experiment bringing up Invenio RDM v14 under Granian instead of uWSGI/Gunicorn, provisioned on AWS via clasm and locally via Multipass, managed via uv. Free-threaded Python 3.14t was tried and abandoned (SQLAlchemy's own bundled C extension re-enables the GIL process-wide); runs on standard Python 3.14 instead. v0.0.5: re-pinned to invenio-app-rdm 14.0.0 GA (cookiecutter-invenio-rdm's new v14.0 branch), live-verified end to end -- including reboot-survivable systemd hardening -- on both AWS EC2 and Multipass.",
   "funder": [
     {
       "name": "Caltech Library",
@@ -30,10 +30,11 @@
   ],
   "name": "granian-rdm-v14",
   "license": "https://caltechlibrary.github.io/granian-rdm-v14/LICENSE",
-  "version": "0.0.4",
-  "developmentStatus": "concept",
+  "version": "0.0.5",
+  "developmentStatus": "active",
   "issueTracker": "https://github.com/caltechlibrary/granian-rdm-v14/issues",
-  "releaseNotes": "Added path.repo to support snapshoting OpenSearch indexes and copying them to S3.",
+  "releaseNotes": "Re-pinned invenio-app-rdm to 14.0.0 GA (was 14.0.0rc2/rc3) via cookiecutter-invenio-rdm's new v14.0 branch, since master has moved on to targeting v15 betas. Fixed a silent drift between cloud-init.yaml and cloud-init-multipass.yaml (RDM pin, Node version) with a new verify_cloud_init_sync.bash regression check, and settled the vendored invenio-cli dev-runner patch's AWS/Multipass split as permanent by design. Live-verified end to end on both AWS EC2 and Multipass, including two reboot cycles on each platform.",
   "copyrightYear": 2026,
-  "copyrightHolder": "California Institute of Technology"
+  "copyrightHolder": "California Institute of Technology",
+  "copyrightNotice": "Copyright and license here (LICENSE, BSD-3-Clause) cover this repository's own cloud-init scripts and documentation only. Invenio RDM itself (invenio-app-rdm, invenio-cli, cookiecutter-invenio-rdm) is a separate, MIT-licensed project of the Invenio community and is not redistributed here -- see NOTICE.md. Exception: vendor/invenio_cli/ contains two small patched files copied from invenio-cli, which retain their original MIT license -- see vendor/invenio_cli/LICENSE."
 }
